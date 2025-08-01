@@ -1,0 +1,10 @@
+tests/cases/compiler/kindDiagnostics.ts(4,1): error TS9001: Expected type constructor with 1 parameters, but got 0.
+tests/cases/compiler/kindDiagnostics.ts(7,1): error TS9002: Expected kind parameter 1 to be 'Type', but got 'Kind<Type>'.
+tests/cases/compiler/kindDiagnostics.ts(10,1): error TS9003: Type parameter T is covariant, but expected invariant.
+tests/cases/compiler/kindDiagnostics.ts(13,1): error TS9004: Kind alias 'MyKind' cannot be resolved to a compatible kind.
+tests/cases/compiler/kindDiagnostics.ts(16,1): error TS9001: Expected type constructor with 2 parameters, but got 1.
+tests/cases/compiler/kindDiagnostics.ts(17,1): error TS9001: Expected type constructor with 2 parameters, but got 3.
+tests/cases/compiler/kindDiagnostics.ts(20,1): error TS9002: Expected kind parameter 0 to be 'Type', but got 'Kind<Type>'.
+tests/cases/compiler/kindDiagnostics.ts(23,1): suggestion TS9009: Consider using + variance annotation for parameter 'T'.
+tests/cases/compiler/kindDiagnostics.ts(27,1): suggestion TS9007: Consider adding 1 type parameter(s) to match expected arity.
+tests/cases/compiler/kindDiagnostics.ts(32,1): error TS9002: Expected kind parameter 0 to be 'Type', but got 'Kind<Type>'. 

@@ -447,6 +447,7 @@ import {
     TypePredicateNode,
     TypeQueryNode,
     TypeReferenceNode,
+    KindTypeNode,
     UnionOrIntersectionTypeNode,
     UnionTypeNode,
     VariableDeclaration,
@@ -580,6 +581,7 @@ export function createNodeFactory(flags: NodeFactoryFlags, baseFactory: BaseNode
         createTypePredicateNode,
         updateTypePredicateNode,
         createTypeReferenceNode,
+        createKindTypeNode,
         updateTypeReferenceNode,
         createFunctionTypeNode,
         updateFunctionTypeNode,
@@ -2304,6 +2306,15 @@ export function createNodeFactory(flags: NodeFactoryFlags, baseFactory: BaseNode
     function createTypeReferenceNode(typeName: string | EntityName, typeArguments: readonly TypeNode[] | undefined) {
         const node = createBaseNode<TypeReferenceNode>(SyntaxKind.TypeReference);
         node.typeName = asName(typeName);
+        node.typeArguments = typeArguments && parenthesizerRules().parenthesizeTypeArguments(createNodeArray(typeArguments));
+        node.transformFlags = TransformFlags.ContainsTypeScript;
+        return node;
+    }
+
+    // @api
+    function createKindTypeNode(typeName: EntityName, typeArguments: readonly TypeNode[] | undefined): KindTypeNode {
+        const node = createBaseNode<KindTypeNode>(SyntaxKind.KindType);
+        node.typeName = typeName;
         node.typeArguments = typeArguments && parenthesizerRules().parenthesizeTypeArguments(createNodeArray(typeArguments));
         node.transformFlags = TransformFlags.ContainsTypeScript;
         return node;

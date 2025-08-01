@@ -386,6 +386,7 @@ import {
     TypePredicateNode,
     TypeQueryNode,
     TypeReferenceNode,
+    KindTypeNode,
     UnaryExpression,
     unescapeLeadingUnderscores,
     UnionOrIntersectionTypeNode,
@@ -2138,6 +2139,14 @@ namespace Parser {
         return inContext(NodeFlags.DisallowConditionalTypesContext);
     }
 
+    function inMappedTypeContext() {
+        return inContext(NodeFlags.InMappedTypeContext);
+    }
+
+    function inExtendsConstraintContext() {
+        return inContext(NodeFlags.InExtendsConstraintContext);
+    }
+
     function inDecoratorContext() {
         return inContext(NodeFlags.DecoratorContext);
     }
@@ -3805,6 +3814,55 @@ namespace Parser {
         );
     }
 
+    function getLastIdentifier(node: EntityName): Identifier {
+        switch (node.kind) {
+            case SyntaxKind.Identifier:
+                return node;
+            case SyntaxKind.QualifiedName:
+                return node.right;
+            default:
+                return Debug.fail("Unexpected entity name kind");
+        }
+    }
+
+    function parseKindType(): KindTypeNode {
+        const pos = getNodePos();
+        // Parse the entity name (supports qualified names like ns.Kind)
+        const typeName = parseEntityNameOfTypeReference();
+        
+        // Validate that the final identifier is "Kind" (case-sensitive)
+        const finalIdentifier = getLastIdentifier(typeName);
+        if (finalIdentifier.escapedText !== "Kind") {
+            // Check if this might be an aliased import (e.g., "kind" from "Kind as kind")
+            // For now, we'll be strict and only allow exact "Kind" match
+            // TODO: In the future, we could check symbol table for aliased imports
+            parseErrorAtRange(finalIdentifier, Diagnostics.Identifier_expected);
+        }
+        
+        // TODO: Check for conflicting keyword usage (shadowed by local variables/parameters)
+        // This would require access to the symbol table during parsing
+        
+        // Parse the type arguments (the content inside <...>)
+        const typeArguments = parseTypeArgumentsOfTypeReference();
+        
+        // Validate type arguments arity - must be >= 1
+        if (!typeArguments || typeArguments.length === 0) {
+            parseErrorAtCurrentToken(Diagnostics.Type_argument_list_cannot_be_empty);
+        }
+        
+        const node: KindTypeNode = finishNode(
+            factory.createKindTypeNode(typeName, typeArguments),
+            pos,
+        );
+        
+        // Capture parser flags for generic positions
+        if (contextFlags) {
+            (node as Mutable<KindTypeNode>).flags |= contextFlags;
+        }
+        
+        return node;
+    }
+
     // If true, we should abort parsing an error function.
     function typeHasArrowFunctionBlockingParseError(node: TypeNode): boolean {
         switch (node.kind) {
@@ -4409,6 +4467,10 @@ namespace Parser {
 
     function parseMappedType() {
         const pos = getNodePos();
+        // Set mapped type context flag
+        const savedContextFlags = contextFlags;
+        contextFlags |= NodeFlags.InMappedTypeContext;
+        
         parseExpected(SyntaxKind.OpenBraceToken);
         let readonlyToken: ReadonlyKeyword | PlusToken | MinusToken | undefined;
         if (token() === SyntaxKind.ReadonlyKeyword || token() === SyntaxKind.PlusToken || token() === SyntaxKind.MinusToken) {
@@ -4432,6 +4494,10 @@ namespace Parser {
         parseSemicolon();
         const members = parseList(ParsingContext.TypeMembers, parseTypeMember);
         parseExpected(SyntaxKind.CloseBraceToken);
+        
+        // Restore context flags
+        contextFlags = savedContextFlags;
+        
         return finishNode(factory.createMappedTypeNode(readonlyToken, typeParameter, nameType, questionToken, type, members), pos);
     }
 
@@ -4649,6 +4715,8 @@ namespace Parser {
                 return parseImportType();
             case SyntaxKind.AssertsKeyword:
                 return lookAhead(nextTokenIsIdentifierOrKeywordOnSameLine) ? parseAssertsTypePredicate() : parseTypeReference();
+            case SyntaxKind.KindKeyword:
+                return parseKindType();
             case SyntaxKind.TemplateHead:
                 return parseTemplateType();
             default:
@@ -4673,6 +4741,7 @@ namespace Parser {
             case SyntaxKind.ThisKeyword:
             case SyntaxKind.TypeOfKeyword:
             case SyntaxKind.NeverKeyword:
+            case SyntaxKind.KindKeyword:
             case SyntaxKind.OpenBraceToken:
             case SyntaxKind.OpenBracketToken:
             case SyntaxKind.LessThanToken:
@@ -4757,7 +4826,15 @@ namespace Parser {
 
     function tryParseConstraintOfInferType() {
         if (parseOptional(SyntaxKind.ExtendsKeyword)) {
+            // Set extends constraint context flag
+            const savedContextFlags = contextFlags;
+            contextFlags |= NodeFlags.InExtendsConstraintContext;
+            
             const constraint = disallowConditionalTypesAnd(parseType);
+            
+            // Restore context flags
+            contextFlags = savedContextFlags;
+            
             if (inDisallowConditionalTypesContext() || token() !== SyntaxKind.QuestionToken) {
                 return constraint;
             }
@@ -5762,6 +5839,7 @@ namespace Parser {
          *      6) - UpdateExpression[?yield]
          *      7) ~ UpdateExpression[?yield]
          *      8) ! UpdateExpression[?yield]
+         *      9) [+Await] await UnaryExpression[?yield]
          */
         const unaryOperator = token();
         const simpleUnaryExpression = parseSimpleUnaryExpression();
@@ -8214,6 +8292,12 @@ namespace Parser {
         if (expression.kind === SyntaxKind.ExpressionWithTypeArguments) {
             return expression as ExpressionWithTypeArguments;
         }
+        
+        // Check if this is Kind being used in a value position
+        if (expression.kind === SyntaxKind.Identifier && (expression as Identifier).escapedText === "Kind") {
+            parseErrorAtRange(expression, Diagnostics.Type_expected);
+        }
+        
         const typeArguments = tryParseTypeArguments();
         return finishNode(factory.createExpressionWithTypeArguments(expression, typeArguments), pos);
     }

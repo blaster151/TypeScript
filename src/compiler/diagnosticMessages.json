@@ -8519,5 +8519,73 @@
     "'{0}' is not a valid meta-property for keyword 'import'. Did you mean 'meta' or 'defer'?": {
         "category": "Error",
         "code": 18061
+    },
+    "Expected type constructor with {0} parameters, but got {1}.": {
+        "category": "Error",
+        "code": 9501
+    },
+    "Expected kind parameter {0} to be '{1}', but got '{2}'.": {
+        "category": "Error",
+        "code": 9502
+    },
+    "Type parameter {0} is {1}, but expected {2}.": {
+        "category": "Error",
+        "code": 9503
+    },
+    "Kind alias '{0}' cannot be resolved to a compatible kind.": {
+        "category": "Error",
+        "code": 9504
+    },
+    "This constraint is declared here: {0}:{1}:{2}": {
+        "category": "Message",
+        "code": 9505
+    },
+    "Consider reading the target function's type signature for expected kind information.": {
+        "category": "Message",
+        "code": 9506
+    },
+    "Consider adding {0} type parameter(s) to match expected arity.": {
+        "category": "Suggestion",
+        "code": 9507
+    },
+    "Consider removing {0} type parameter(s) to match expected arity.": {
+        "category": "Suggestion",
+        "code": 9508
+    },
+    "Consider using {0} variance annotation for parameter '{1}'.": {
+        "category": "Suggestion",
+        "code": 9509
+    },
+    "Replace '{0}' with '{1}' (matches expected kind)": {
+        "category": "Suggestion",
+        "code": 9510
+    },
+    "Replace all kind mismatches with suggested type constructors": {
+        "category": "Suggestion",
+        "code": 9511
+    },
+    "Type parameter '{0}' violates kind constraint: expected '{1}', got '{2}'": {
+        "category": "Error",
+        "code": 9512
+    },
+    "Partial application arity mismatch: remaining arity {0} does not match constraint arity {1}": {
+        "category": "Error",
+        "code": 9513
+    },
+    "Argument {0} kind mismatch in partial application: expected {1}, got {2}": {
+        "category": "Error",
+        "code": 9514
+    },
+    "Consider supplying all type parameters to avoid partial application": {
+        "category": "Suggestion",
+        "code": 9515
+    },
+    "Consider removing extra type arguments to match expected arity": {
+        "category": "Suggestion",
+        "code": 9516
+    },
+    "Type alias '{0}' kind mismatch: declared '{1}', defined '{2}'": {
+        "category": "Error",
+        "code": 9517
     }
 }

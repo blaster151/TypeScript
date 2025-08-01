@@ -1,0 +1,3 @@
+tests/cases/compiler/kindConstraintPropagation.ts(45,1): error TS9012: Type parameter 'F' violates kind constraint: expected 'Kind<Type, Type>', got 'Array'
+tests/cases/compiler/kindConstraintPropagation.ts(46,1): error TS9012: Type parameter 'F' violates kind constraint: expected 'Kind<Type, Type>', got 'Array'
+tests/cases/compiler/kindConstraintPropagation.ts(47,1): error TS9012: Type parameter 'F' violates kind constraint: expected 'Kind<Type, Type>', got 'Array' 

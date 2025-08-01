@@ -223,6 +223,7 @@ export const enum SyntaxKind {
     BigIntKeyword,
     OverrideKeyword,
     OfKeyword,
+    KindKeyword,
     DeferKeyword, // LastKeyword and LastToken and LastContextualKeyword
 
     // Parse tree nodes
@@ -249,6 +250,7 @@ export const enum SyntaxKind {
     // Type
     TypePredicate,
     TypeReference,
+    KindType,
     FunctionType,
     ConstructorType,
     TypeQuery,
@@ -663,7 +665,8 @@ export type KeywordSyntaxKind =
     | SyntaxKind.VoidKeyword
     | SyntaxKind.WhileKeyword
     | SyntaxKind.WithKeyword
-    | SyntaxKind.YieldKeyword;
+    | SyntaxKind.YieldKeyword
+    | SyntaxKind.KindKeyword;
 
 export type ModifierSyntaxKind =
     | SyntaxKind.AbstractKeyword
@@ -701,6 +704,7 @@ export type TypeNodeSyntaxKind =
     | KeywordTypeSyntaxKind
     | SyntaxKind.TypePredicate
     | SyntaxKind.TypeReference
+    | SyntaxKind.KindType
     | SyntaxKind.FunctionType
     | SyntaxKind.ConstructorType
     | SyntaxKind.TypeQuery
@@ -800,10 +804,12 @@ export const enum NodeFlags {
     DecoratorContext   = 1 << 15, // If node was parsed as part of a decorator
     AwaitContext       = 1 << 16, // If node was parsed in the 'await' context created when parsing an async function
     DisallowConditionalTypesContext = 1 << 17, // If node was parsed in a context where conditional types are not allowed
-    ThisNodeHasError   = 1 << 18, // If the parser encountered an error when parsing the code that created this node
-    JavaScriptFile     = 1 << 19, // If node was parsed in a JavaScript
-    ThisNodeOrAnySubNodesHasError = 1 << 20, // If this node or any of its children had an error
-    HasAggregatedChildData = 1 << 21, // If we've computed data from children and cached it in this node
+    InMappedTypeContext = 1 << 18, // If node was parsed inside a mapped type
+    InExtendsConstraintContext = 1 << 19, // If node was parsed inside an extends constraint
+    ThisNodeHasError   = 1 << 20, // If the parser encountered an error when parsing the code that created this node
+    JavaScriptFile     = 1 << 21, // If node was parsed in a JavaScript
+    ThisNodeOrAnySubNodesHasError = 1 << 22, // If this node or any of its children had an error
+    HasAggregatedChildData = 1 << 23, // If we've computed data from children and cached it in this node
 
     // These flags will be set when the parser encounters a dynamic import expression or 'import.meta' to avoid
     // walking the tree if the flags are not set. However, these flags are just a approximation
@@ -814,15 +820,15 @@ export const enum NodeFlags {
     // removal, it is likely that users will add the import anyway.
     // The advantage of this approach is its simplicity. For the case of batch compilation,
     // we guarantee that users won't have to pay the price of walking the tree if a dynamic import isn't used.
-    /** @internal */ PossiblyContainsDynamicImport = 1 << 22,
-    /** @internal */ PossiblyContainsImportMeta    = 1 << 23,
+    /** @internal */ PossiblyContainsDynamicImport = 1 << 24,
+    /** @internal */ PossiblyContainsImportMeta    = 1 << 25,
 
-    JSDoc                                          = 1 << 24, // If node was parsed inside jsdoc
-    /** @internal */ Ambient                       = 1 << 25, // If node was inside an ambient context -- a declaration file, or inside something with the `declare` modifier.
-    /** @internal */ InWithStatement               = 1 << 26, // If any ancestor of node was the `statement` of a WithStatement (not the `expression`)
-    JsonFile                                       = 1 << 27, // If node was parsed in a Json
-    /** @internal */ TypeCached                    = 1 << 28, // If a type was cached for node at any point
-    /** @internal */ Deprecated                    = 1 << 29, // If has '@deprecated' JSDoc tag
+    JSDoc                                          = 1 << 26, // If node was parsed inside jsdoc
+    /** @internal */ Ambient                       = 1 << 27, // If node was inside an ambient context -- a declaration file, or inside something with the `declare` modifier.
+    /** @internal */ InWithStatement               = 1 << 28, // If any ancestor of node was the `statement` of a WithStatement (not the `expression`)
+    JsonFile                                       = 1 << 29, // If node was parsed in a Json
+    /** @internal */ TypeCached                    = 1 << 30, // If a type was cached for node at any point
+    /** @internal */ Deprecated                    = 1 << 31, // If has '@deprecated' JSDoc tag
 
     BlockScoped = Let | Const | Using,
     Constant = Const | Using,
@@ -831,7 +837,7 @@ export const enum NodeFlags {
     ReachabilityAndEmitFlags = ReachabilityCheckFlags | HasAsyncFunctions,
 
     // Parsing context flags
-    ContextFlags = DisallowInContext | DisallowConditionalTypesContext | YieldContext | DecoratorContext | AwaitContext | JavaScriptFile | InWithStatement | Ambient,
+    ContextFlags = DisallowInContext | DisallowConditionalTypesContext | InMappedTypeContext | InExtendsConstraintContext | YieldContext | DecoratorContext | AwaitContext | JavaScriptFile | InWithStatement | Ambient,
 
     // Exclude these flags when parsing a Type
     TypeExcludesFlags = YieldContext | AwaitContext,
@@ -2244,6 +2250,11 @@ export type TypeReferenceType = TypeReferenceNode | ExpressionWithTypeArguments;
 
 export interface TypeReferenceNode extends NodeWithTypeArguments {
     readonly kind: SyntaxKind.TypeReference;
+    readonly typeName: EntityName;
+}
+
+export interface KindTypeNode extends NodeWithTypeArguments {
+    readonly kind: SyntaxKind.KindType;
     readonly typeName: EntityName;
 }
 
@@ -6107,6 +6118,12 @@ export interface SymbolLinks {
     accessibleChainCache?: Map<string, Symbol[] | undefined>;
     filteredIndexSymbolCache?: Map<string, Symbol> //Symbol with applicable declarations
     requestedExternalEmitHelpers?: ExternalEmitHelpers; // External emit helpers already checked for this symbol.
+    
+    // Kind metadata for KindType symbols
+    kindArity?: number; // Number of type arguments for Kind<...>
+    parameterKinds?: Type[]; // Resolved parameter types for Kind<...>
+    kindFlags?: number; // Optional flags for covariance/contravariance info
+    isInferredKind?: boolean; // True if kind was inferred rather than explicitly annotated
 }
 
 // dprint-ignore
@@ -6364,6 +6381,7 @@ export const enum TypeFlags {
     Reserved1       = 1 << 29,  // Used by union/intersection type construction
     /** @internal */
     Reserved2       = 1 << 30,  // Used by union/intersection type construction
+    Kind            = 1 << 31,  // Kind type (Kind<...>)
 
     /** @internal */
     AnyOrUnknown = Any | Unknown,
@@ -6454,6 +6472,15 @@ export interface Type {
     immediateBaseConstraint?: Type;  // Immediate base constraint cache
     /** @internal */
     widened?: Type; // Cached widened form of the type
+}
+
+/**
+ * Kind type (Kind<...>)
+ * Represents a kind type with its arity and parameter kinds
+ */
+export interface KindType extends Type {
+    kindArity: number;               // Number of type arguments for Kind<...>
+    parameterKinds: readonly Type[]; // Resolved parameter types for Kind<...>
 }
 
 /** @internal */
@@ -8863,6 +8890,7 @@ export interface NodeFactory {
     createTypePredicateNode(assertsModifier: AssertsKeyword | undefined, parameterName: Identifier | ThisTypeNode | string, type: TypeNode | undefined): TypePredicateNode;
     updateTypePredicateNode(node: TypePredicateNode, assertsModifier: AssertsKeyword | undefined, parameterName: Identifier | ThisTypeNode, type: TypeNode | undefined): TypePredicateNode;
     createTypeReferenceNode(typeName: string | EntityName, typeArguments?: readonly TypeNode[]): TypeReferenceNode;
+    createKindTypeNode(typeName: EntityName, typeArguments?: readonly TypeNode[]): KindTypeNode;
     updateTypeReferenceNode(node: TypeReferenceNode, typeName: EntityName, typeArguments: NodeArray<TypeNode> | undefined): TypeReferenceNode;
     createFunctionTypeNode(typeParameters: readonly TypeParameterDeclaration[] | undefined, parameters: readonly ParameterDeclaration[], type: TypeNode): FunctionTypeNode;
     updateFunctionTypeNode(node: FunctionTypeNode, typeParameters: NodeArray<TypeParameterDeclaration> | undefined, parameters: NodeArray<ParameterDeclaration>, type: TypeNode): FunctionTypeNode;

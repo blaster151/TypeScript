@@ -174,6 +174,7 @@ export const textToKeywordObj: MapLike<KeywordSyntaxKind> = {
     intrinsic: SyntaxKind.IntrinsicKeyword,
     is: SyntaxKind.IsKeyword,
     keyof: SyntaxKind.KeyOfKeyword,
+    kind: SyntaxKind.KindKeyword,
     let: SyntaxKind.LetKeyword,
     module: SyntaxKind.ModuleKeyword,
     namespace: SyntaxKind.NamespaceKeyword,
