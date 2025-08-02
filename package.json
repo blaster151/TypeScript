@@ -23,7 +23,9 @@
     "typings": "./lib/typescript.d.ts",
     "bin": {
         "tsc": "./bin/tsc",
-        "tsserver": "./bin/tsserver"
+        "tsserver": "./bin/tsserver",
+        "tsplusc": "./bin/tsplusc.js",
+        "tsplusserver": "./bin/tsplusserver.js"
     },
     "engines": {
         "node": ">=14.17"
@@ -99,7 +101,10 @@
         "lint": "hereby lint",
         "knip": "hereby knip",
         "format": "dprint fmt",
-        "setup-hooks": "node scripts/link-hooks.mjs"
+        "setup-hooks": "node scripts/link-hooks.mjs",
+        "generate:kind-dts": "node scripts/generateKindDTs.js",
+        "build:with-kind": "npm run generate:kind-dts && npm run build",
+        "postinstall": "node scripts/postinstall.js"
     },
     "browser": {
         "fs": false,

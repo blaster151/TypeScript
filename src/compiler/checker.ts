@@ -1,12 +1,4 @@
 import {
-    integrateKindValidationInCheckTypeReference,
-    integrateKindValidationInCheckTypeArgumentConstraints,
-    integrateKindValidationInCheckTypeAliasDeclaration,
-    integrateKindValidationInCheckHeritageClauses,
-    integrateKindValidationInCheckMappedType
-} from "./kindCheckerIntegration.js";
-
-import {
     __String,
     AccessExpression,
     AccessFlags,
@@ -17297,6 +17289,11 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 links.resolvedSymbol = unknownSymbol;
                 return links.resolvedType = checkExpressionCached(node.parent.expression);
             }
+            
+            // Check if this is a Kind type reference (TypeReferenceNode named "Kind")
+            if (isKindTypeReference(node)) {
+                return getTypeFromKindTypeReference(node);
+            }
             let symbol: Symbol | undefined;
             let type: Type | undefined;
             const meaning = SymbolFlags.Type;
@@ -20455,6 +20452,8 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 return getTypeFromTemplateTypeNode(node as TemplateLiteralTypeNode);
             case SyntaxKind.ImportType:
                 return getTypeFromImportTypeNode(node as ImportTypeNode);
+            case SyntaxKind.KindType:
+                return getTypeFromKindTypeNode(node as KindTypeNode);
             // This function assumes that an identifier, qualified name, or property access expression is a type expression
             // Callers should first ensure this by calling `isPartOfTypeNode`
             // TODO(rbuckton): These aren't valid TypeNodes, but we treat them as such because of `isPartOfTypeNode`, which returns `true` for things that aren't `TypeNode`s.
@@ -42629,18 +42628,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     }
 
     function checkTypeReferenceNode(node: TypeReferenceNode | ExpressionWithTypeArguments) {
-        if (node.kind === SyntaxKind.TypeReference) {
-            const { hasKindValidation, diagnostics } = integrateKindValidationInCheckTypeReference(
-                node as TypeReferenceNode,
-                this,
-                getSourceFileOfNode(node)
-            );
-            diagnostics.forEach(d => checker.addDiagnostic(d));
-            if (hasKindValidation) {
-                // Optionally: return early or adjust logic if kind validation is definitive
-            }
-        }
-
         checkGrammarTypeArguments(node, node.typeArguments);
         if (node.kind === SyntaxKind.TypeReference && !isInJSFile(node) && !isInJSDoc(node) && node.typeArguments && node.typeName.end !== node.typeArguments.pos) {
             // If there was a token between the type name and the type arguments, check if it was a DotToken
@@ -42664,20 +42651,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                     }
                 });
             }
-
-            if (node.typeArguments && node.typeArguments.length > 0) {
-                const typeArguments = node.typeArguments.map(arg => this.getTypeFromTypeNode(arg));
-                const typeParamDeclarations = typeParameters.map(param => param.declaration);
-                const { violations, diagnostics } = integrateKindValidationInCheckTypeArgumentConstraints(
-                    typeArguments,
-                    typeParamDeclarations,
-                    this,
-                    getSourceFileOfNode(node)
-                );
-                diagnostics.forEach(d => checker.addDiagnostic(d));
-                if (violations.length > 0) return false;
-            }
-
             const symbol = getNodeLinks(node).resolvedSymbol;
             if (symbol) {
                 if (some(symbol.declarations, d => isTypeDeclaration(d) && !!(d.flags & NodeFlags.Deprecated))) {
@@ -42805,13 +42778,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     }
 
     function checkMappedType(node: MappedTypeNode) {
-        const { diagnostics } = integrateKindValidationInCheckMappedType(
-            node,
-            this,
-            getSourceFileOfNode(node)
-        );
-        diagnostics.forEach(d => checker.addDiagnostic(d));
-
         checkGrammarMappedType(node);
         checkSourceElement(node.typeParameter);
         checkSourceElement(node.nameType);
@@ -46955,16 +46921,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         forEach(node.members, checkSourceElement);
 
         registerForUnusedIdentifiersCheck(node);
-
-        // I had to guess where to put this - JCB
-        if (node.heritageClauses) {
-            const { diagnostics } = integrateKindValidationInCheckHeritageClauses(
-                node.heritageClauses,
-                this,
-                getSourceFileOfNode(node)
-            );
-            diagnostics.forEach(d => checker.addDiagnostic(d));
-        }
     }
 
     function checkClassLikeDeclaration(node: ClassLikeDeclaration) {
@@ -47722,15 +47678,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             checkTypeForDuplicateIndexSignatures(node);
             registerForUnusedIdentifiersCheck(node);
         });
-
-        if (node.heritageClauses) {
-            const { diagnostics } = integrateKindValidationInCheckHeritageClauses(
-                node.heritageClauses,
-                this,
-                getSourceFileOfNode(node)
-            );
-            diagnostics.forEach(d => checker.addDiagnostic(d));
-        }
     }
 
     function checkTypeAliasDeclaration(node: TypeAliasDeclaration) {
@@ -47742,15 +47689,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         }
         checkExportsOnMergedDeclarations(node);
         checkTypeParameters(node.typeParameters);
-
-        // I had to guess where to put this - JCB
-        const { diagnostics } = integrateKindValidationInCheckTypeAliasDeclaration(
-            node,
-            this,
-            getSourceFileOfNode(node)
-        );
-        diagnostics.forEach(d => checker.addDiagnostic(d));
-
         if (node.type.kind === SyntaxKind.IntrinsicKeyword) {
             const typeParameterCount = length(node.typeParameters);
             const valid = typeParameterCount === 0 ? node.name.escapedText === "BuiltinIteratorReturn" :
@@ -53833,3 +53771,26 @@ class SymbolTrackerImpl implements SymbolTracker {
         return this.inner?.popErrorFallbackNode?.();
     }
 }
+
+ 
+    /**
+     * Kind validation integration for checkTypeReferenceNode
+     */
+    function integrateKindValidationInCheckTypeReference(node: TypeReferenceNode | ExpressionWithTypeArguments, typeParameters: readonly TypeParameter[] | undefined): void {
+        if (typeParameters && typeParameters.length > 0) {
+            // Kind validation logic here
+            // This would call compareKindsWithAliasSupport and validateFPPatternConstraints
+            // when the type system is fully integrated
+        }
+    }
+
+    /**
+     * Kind validation integration for checkTypeArgumentConstraints
+     */
+    function integrateKindValidationInCheckTypeArgumentConstraints(node: TypeReferenceNode | ExpressionWithTypeArguments | NodeWithTypeArguments, typeParameters: readonly TypeParameter[]): void {
+        if (typeParameters && typeParameters.length > 0) {
+            // Kind validation logic here
+            // This would validate kind constraints for type arguments
+            // when the type system is fully integrated
+        }
+    } 

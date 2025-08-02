@@ -10,6 +10,7 @@ import {
 } from "./types.js";
 import { KindMetadata } from "./kindMetadata.js";
 import { compareKinds } from "./kindComparison.js";
+import { addDiagnosticIfNotDuplicate } from "./kindDiagnosticDeduplication.js";
 
 /**
  * Kind constraint information for a type parameter
@@ -384,7 +385,28 @@ function addDiagnosticToCollection(diagnostic: any): void {
     
     // Try to add to the checker's diagnostic collection if available
     if (typeof globalThis !== 'undefined' && (globalThis as any).kindDiagnostics) {
-        (globalThis as any).kindDiagnostics.push(diagnostic);
+        const diagnostics = (globalThis as any).kindDiagnostics;
+        
+        // Convert the diagnostic to the proper format for deduplication
+        const formattedDiagnostic = {
+            file: diagnostic.sourceFile,
+            start: diagnostic.start,
+            length: diagnostic.length,
+            messageText: diagnostic.message,
+            category: diagnostic.category === "Error" ? 1 : diagnostic.category === "Warning" ? 2 : 3,
+            code: diagnostic.code,
+            reportsUnnecessary: false,
+            reportsDeprecated: false,
+            source: "ts.plus"
+        };
+        
+        // Use the deduplication helper
+        const wasAdded = addDiagnosticIfNotDuplicate(diagnostics, formattedDiagnostic);
+        
+        if (!wasAdded) {
+            // Log that we're skipping a duplicate diagnostic
+            console.log(`[Kind] Skipping duplicate diagnostic: ${diagnostic.message} at ${diagnostic.sourceFile.fileName}:${diagnostic.start}`);
+        }
     }
     
     // Also log for debugging purposes

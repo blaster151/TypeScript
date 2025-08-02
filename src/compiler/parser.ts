@@ -3827,16 +3827,35 @@ namespace Parser {
 
     function parseKindType(): KindTypeNode {
         const pos = getNodePos();
+        
         // Parse the entity name (supports qualified names like ns.Kind)
         const typeName = parseEntityNameOfTypeReference();
         
         // Validate that the final identifier is "Kind" (case-sensitive)
+        // Allow both direct "Kind" and namespace-qualified "Kind" (e.g., ts.plus.Kind)
         const finalIdentifier = getLastIdentifier(typeName);
         if (finalIdentifier.escapedText !== "Kind") {
-            // Check if this might be an aliased import (e.g., "kind" from "Kind as kind")
-            // For now, we'll be strict and only allow exact "Kind" match
-            // TODO: In the future, we could check symbol table for aliased imports
+            // For now, we require exact "Kind" match for consistency
+            // TODO: In the future, we could:
+            // 1. Check symbol table for aliased imports (e.g., "kind" from "Kind as kind")
+            // 2. Allow other kind-related identifiers from stdlib (e.g., "Functor", "Bifunctor")
+            // 3. Support user-defined kind aliases
             parseErrorAtRange(finalIdentifier, Diagnostics.Identifier_expected);
+            
+            // Recovery: Create a KindTypeNode with the parsed type name but mark it as missing
+            // This allows parsing to continue while still marking the error
+            const recoveryTypeArguments = [createMissingNode<TypeReferenceNode>(SyntaxKind.TypeReference, /*reportAtCurrentPosition*/ false)];
+            const node: KindTypeNode = finishNode(
+                factory.createKindTypeNode(typeName, recoveryTypeArguments),
+                pos,
+            );
+            
+            // Capture parser flags for generic positions
+            if (contextFlags) {
+                (node as Mutable<KindTypeNode>).flags |= contextFlags;
+            }
+            
+            return node;
         }
         
         // TODO: Check for conflicting keyword usage (shadowed by local variables/parameters)
@@ -3846,8 +3865,24 @@ namespace Parser {
         const typeArguments = parseTypeArgumentsOfTypeReference();
         
         // Validate type arguments arity - must be >= 1
-        if (!typeArguments || typeArguments.length === 0) {
+        // Use a single check to avoid duplicate diagnostics
+        if (!typeArguments || typeArguments.length < 1) {
             parseErrorAtCurrentToken(Diagnostics.Type_argument_list_cannot_be_empty);
+            
+            // Recovery: Create a minimal KindTypeNode with missing type arguments
+            // This allows parsing to continue while still marking the error
+            const recoveryTypeArguments = [createMissingNode<TypeReferenceNode>(SyntaxKind.TypeReference, /*reportAtCurrentPosition*/ false)];
+            const node: KindTypeNode = finishNode(
+                factory.createKindTypeNode(typeName, recoveryTypeArguments),
+                pos,
+            );
+            
+            // Capture parser flags for generic positions
+            if (contextFlags) {
+                (node as Mutable<KindTypeNode>).flags |= contextFlags;
+            }
+            
+            return node;
         }
         
         const node: KindTypeNode = finishNode(
@@ -3856,6 +3891,8 @@ namespace Parser {
         );
         
         // Capture parser flags for generic positions
+        // This ensures context flags like InMappedTypeContext and InExtendsConstraintContext
+        // are properly propagated to the KindTypeNode for later validation
         if (contextFlags) {
             (node as Mutable<KindTypeNode>).flags |= contextFlags;
         }

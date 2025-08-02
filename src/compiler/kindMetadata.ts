@@ -10,6 +10,7 @@ import {
     SyntaxKind,
     TypeFlags,
 } from "./types.js";
+import { retrieveBuiltInKindMetadata, isBuiltInKindAlias, isBuiltInFPPattern } from "./kindAliasMetadata.js";
 
 /**
  * Source of kind information
@@ -19,6 +20,7 @@ export const enum KindSource {
     ExplicitAnnotation = 1,
     InferredFromParams = 2,
     InferredFromBaseOrInterface = 3,
+    BuiltInAlias = 4, // New source for built-in kind aliases
 }
 
 /**
@@ -31,6 +33,8 @@ export interface KindMetadata {
     symbol: Symbol;
     isValid: boolean;
     errorMessage?: string;
+    isBuiltInAlias?: boolean; // Flag to identify built-in aliases
+    aliasName?: string; // Name of the built-in alias
 }
 
 /**
@@ -100,22 +104,16 @@ class KindInfoCache {
      * Get cache statistics for debugging
      */
     getStats(): { size: number; hitRate: number } {
-        const size: number = this.cache.size;
-        const hitRate: number = 0; // TODO: Implement hit rate tracking
         return {
-            size,
-            hitRate
+            size: this.cache.size,
+            hitRate: 0 // TODO: Implement hit rate tracking
         };
     }
 }
 
-// Global instance of the kind info cache
-export const kindInfoCache = new KindInfoCache();
+// Global cache instance
+const kindInfoCache = new KindInfoCache();
 
-/**
- * Retrieve actual kind information for a symbol
- * This is the main entry point for kind retrieval
- */
 export function retrieveKindMetadata(
     symbol: Symbol,
     checker: TypeChecker,
@@ -130,6 +128,25 @@ export function retrieveKindMetadata(
             }
             return cached;
         }
+    }
+
+    // Check for built-in kind aliases first (fast path)
+    const builtInKind = retrieveBuiltInKindMetadata(symbol, checker);
+    if (builtInKind) {
+        if (debugMode) {
+            console.log(`[Kind] Built-in kind alias found for ${(symbol as any).name}:`, builtInKind);
+        }
+        
+        // Enhance the built-in kind metadata with alias information
+        const enhancedMetadata: KindMetadata = {
+            ...builtInKind,
+            retrievedFrom: KindSource.BuiltInAlias,
+            isBuiltInAlias: true,
+            aliasName: (symbol as any).name
+        };
+        
+        kindInfoCache.set(symbol, enhancedMetadata);
+        return enhancedMetadata;
     }
 
     // Try explicit kind annotation first
@@ -706,4 +723,43 @@ function checkImplementedInterfaceKind(
         isValid: false,
         errorMessage: "No implemented interface has valid kind information"
     };
+} 
+
+/**
+ * Get the expanded kind signature for a built-in alias
+ * This returns the equivalent Kind<...> form for the alias
+ */
+export function getExpandedKindSignature(aliasName: string): KindMetadata | undefined {
+    switch (aliasName) {
+        case "Functor":
+            return { arity: 1, parameterKinds: ["Type", "Type"] };
+        case "Bifunctor":
+            return { arity: 2, parameterKinds: ["Type", "Type", "Type"] };
+        default:
+            return undefined;
+    }
+}
+
+/**
+ * Check if a symbol is a built-in kind alias
+ */
+export function isBuiltInKindAliasSymbol(symbol: Symbol): boolean {
+    return isBuiltInKindAlias(symbol);
+}
+
+/**
+ * Check if a symbol is a built-in FP pattern
+ */
+export function isBuiltInFPPatternSymbol(symbol: Symbol): boolean {
+    return isBuiltInFPPattern(symbol);
+}
+
+/**
+ * Get the alias name for a built-in kind alias symbol
+ */
+export function getBuiltInAliasName(symbol: Symbol): string | undefined {
+    if (isBuiltInKindAlias(symbol)) {
+        return (symbol as any).name;
+    }
+    return undefined;
 } 

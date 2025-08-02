@@ -1,447 +1,273 @@
 import {
-    Program,
-    TypeChecker,
+    DiagnosticWithLocation,
     SourceFile,
     Node,
-    DiagnosticWithLocation,
-    DiagnosticMessage,
+    Type,
+    TypeChecker,
+    KindMetadata,
+    KindComparisonResult
 } from "./types.js";
-import { KindComparisonResult } from "./kindComparison.js";
-import { 
-    convertKindErrorsToDiagnostics, 
-    convertKindWarningsToDiagnostics 
-} from "./kindDiagnostics.js";
+import { validateFPPatternKindConstraint } from "./kindAliasMetadata.js";
+import { retrieveKindMetadata, getBuiltInAliasName } from "./kindMetadata.js";
+import { applyKindDiagnosticAlias } from "./kindDiagnosticAlias.js";
+import { createKindDiagnosticWithPosition } from "./kindDiagnosticPositionHelper.js";
 
-/**
- * Reporter for kind-related diagnostics
- * Integrates with TypeScript's diagnostic system for both CLI and language service
- */
 export class KindDiagnosticReporter {
-    private program: Program;
-    private checker: TypeChecker;
     private diagnostics: DiagnosticWithLocation[] = [];
+    private checker: TypeChecker;
 
-    constructor(program: Program) {
-        this.program = program;
-        this.checker = program.getTypeChecker();
+    constructor(checker: TypeChecker) {
+        this.checker = checker;
     }
 
     /**
-     * Report kind comparison results as diagnostics
-     */
-    reportKindComparison(
-        result: KindComparisonResult,
-        node: Node,
-        sourceFile: SourceFile
-    ): void {
-        // Convert errors to diagnostics
-        if (result.errors.length > 0) {
-            const errorDiagnostics = convertKindErrorsToDiagnostics(
-                result.errors,
-                node,
-                sourceFile,
-                this.checker
-            );
-            this.diagnostics.push(...errorDiagnostics);
-        }
-
-        // Convert warnings to suggestion diagnostics
-        if (result.warnings.length > 0) {
-            const warningDiagnostics = convertKindWarningsToDiagnostics(
-                result.warnings,
-                node,
-                sourceFile
-            );
-            this.diagnostics.push(...warningDiagnostics);
-        }
-    }
-
-    /**
-     * Get all collected diagnostics
+     * Get all reported diagnostics
      */
     getDiagnostics(): DiagnosticWithLocation[] {
-        return [...this.diagnostics];
+        return this.diagnostics;
     }
 
     /**
-     * Clear all collected diagnostics
+     * Clear all diagnostics
      */
     clearDiagnostics(): void {
         this.diagnostics = [];
     }
 
     /**
-     * Report diagnostics to the program's diagnostic collection
-     * This integrates with the CLI and language service
+     * Report FP pattern kind constraint violations with enhanced diagnostics
      */
-    reportToProgram(): void {
-        // Add diagnostics to the program's diagnostic collection
-        for (const diagnostic of this.diagnostics) {
-            this.addDiagnosticToProgram(diagnostic);
+    reportFPPatternKindConstraintViolation(
+        patternName: string,
+        typeArgument: Type,
+        node: Node,
+        sourceFile: SourceFile
+    ): void {
+        const typeSymbol = typeArgument.symbol;
+        if (!typeSymbol) {
+            this.reportGenericFPPatternViolation(patternName, "Type argument must be a type constructor", node, sourceFile);
+            return;
         }
+
+        const kindMetadata = retrieveKindMetadata(typeSymbol, this.checker);
+        const actualKind = this.formatKindForDiagnostic(kindMetadata);
+
+        let diagnosticCode: number;
+        let message: string;
+
+        if (patternName === "Free") {
+            diagnosticCode = 9519;
+            message = `The first type parameter of 'Free' must be a unary functor (Kind<Type, Type>). Found: ${actualKind}`;
+        } else if (patternName === "Fix") {
+            diagnosticCode = 9520;
+            message = `The type parameter of 'Fix' must be a unary functor (Kind<Type, Type>). Found: ${actualKind}`;
+        } else {
+            // Fallback to generic message
+            diagnosticCode = 9518;
+            message = `FP pattern '${patternName}' kind constraint violation: ${actualKind}`;
+        }
+
+        const diagnostic = createKindDiagnosticWithPosition(
+            node,
+            sourceFile,
+            message,
+            1, // Error
+            applyKindDiagnosticAlias(diagnosticCode),
+            "ts.plus"
+        );
         
-        // Ensure diagnostics appear in CLI output
-        const cliOutput = this.formatDiagnosticsForCLI();
-        if (cliOutput.length > 0) {
-            // In a real implementation, this would be sent to the compiler's output
-            console.error(cliOutput.join('\n'));
-        }
-        
-        // Ensure diagnostics appear in language service
-        const languageServiceOutput = this.formatDiagnosticsForLanguageService();
-        if (languageServiceOutput.length > 0) {
-            // In a real implementation, this would be sent to the language service
-            // For now, we'll just store them for later retrieval
-            (this.program as any).kindDiagnostics = languageServiceOutput;
-        }
+        // Add quick-fix suggestions
+        diagnostic.relatedInformation = this.generateQuickFixSuggestions(patternName, typeArgument, node, sourceFile);
+
+        this.diagnostics.push(diagnostic);
     }
 
     /**
-     * Add a diagnostic to the program's diagnostic collection
+     * Report generic FP pattern violation (fallback)
      */
-    private addDiagnosticToProgram(diagnostic: DiagnosticWithLocation): void {
-        // Use the program's diagnostic collection API
-        const diagnosticCollection = (this.program as any).getDiagnostics();
-        if (diagnosticCollection) {
-            diagnosticCollection.push(diagnostic);
-        }
-        
-        // Ensure proper integration with the compiler
-        const sourceFile = diagnostic.file;
-        if (sourceFile) {
-            // Add to the source file's diagnostics
-            const sourceFileDiagnostics = (sourceFile as any).diagnostics || [];
-            sourceFileDiagnostics.push(diagnostic);
-            (sourceFile as any).diagnostics = sourceFileDiagnostics;
-        }
-        
-        // Log for debugging purposes
-        console.log(`[Kind] Diagnostic: ${diagnostic.messageText.key || diagnostic.messageText} at ${diagnostic.file.fileName}:${diagnostic.start}`);
-    }
-
-    /**
-     * Format diagnostics for CLI output
-     */
-    formatDiagnosticsForCLI(): string[] {
-        const formatted: string[] = [];
-
-        for (const diagnostic of this.diagnostics) {
-            const message = this.formatDiagnosticMessage(diagnostic);
-            const location = this.formatDiagnosticLocation(diagnostic);
-            const formattedDiagnostic = `${location}: ${diagnostic.category.toLowerCase()}: ${message}`;
-            formatted.push(formattedDiagnostic);
-
-            // Add related information
-            if (diagnostic.relatedInformation) {
-                for (const related of diagnostic.relatedInformation) {
-                    const relatedLocation = this.formatDiagnosticLocation(related);
-                    const relatedMessage = this.formatDiagnosticMessage(related);
-                    formatted.push(`  ${relatedLocation}: ${related.category.toLowerCase()}: ${relatedMessage}`);
-                }
-            }
-        }
-
-        return formatted;
-    }
-
-    /**
-     * Format diagnostics for language service
-     */
-    formatDiagnosticsForLanguageService(): any[] {
-        const formatted: any[] = [];
-
-        for (const diagnostic of this.diagnostics) {
-            const formattedDiagnostic = {
-                range: {
-                    start: this.getPositionFromOffset(diagnostic.file, diagnostic.start),
-                    end: this.getPositionFromOffset(diagnostic.file, diagnostic.start + diagnostic.length)
-                },
-                message: this.formatDiagnosticMessage(diagnostic),
-                severity: this.getSeverityForCategory(diagnostic.category),
-                code: diagnostic.code,
-                source: "typescript",
-                relatedInformation: diagnostic.relatedInformation?.map(related => ({
-                    location: {
-                        uri: `file://${related.file.fileName}`,
-                        range: {
-                            start: this.getPositionFromOffset(related.file, related.start),
-                            end: this.getPositionFromOffset(related.file, related.start + related.length)
-                        }
-                    },
-                    message: this.formatDiagnosticMessage(related)
-                }))
-            };
-            formatted.push(formattedDiagnostic);
-        }
-
-        return formatted;
-    }
-
-    /**
-     * Format a diagnostic message
-     */
-    private formatDiagnosticMessage(diagnostic: DiagnosticWithLocation): string {
-        const messageText = diagnostic.messageText;
-        
-        if (typeof messageText === 'string') {
-            return messageText;
-        }
-
-        if (messageText.key) {
-            // Format the message with arguments
-            let message = messageText.key;
-            if (messageText.arguments) {
-                for (let i = 0; i < messageText.arguments.length; i++) {
-                    message = message.replace(`{${i}}`, String(messageText.arguments[i]));
-                }
-            }
-            return message;
-        }
-
-        return String(messageText);
-    }
-
-    /**
-     * Format a diagnostic location
-     */
-    private formatDiagnosticLocation(diagnostic: DiagnosticWithLocation): string {
-        const fileName = diagnostic.file.fileName;
-        const line = this.getLineFromOffset(diagnostic.file, diagnostic.start);
-        const column = this.getColumnFromOffset(diagnostic.file, diagnostic.start);
-        return `${fileName}(${line},${column})`;
-    }
-
-    /**
-     * Get line number from offset
-     */
-    private getLineFromOffset(sourceFile: SourceFile, offset: number): number {
-        const lineStarts = this.getLineStarts(sourceFile);
-        return this.computeLineOfPosition(lineStarts, offset);
-    }
-
-    /**
-     * Get column number from offset
-     */
-    private getColumnFromOffset(sourceFile: SourceFile, offset: number): number {
-        const lineStarts = this.getLineStarts(sourceFile);
-        const lineNumber = this.computeLineOfPosition(lineStarts, offset);
-        return offset - lineStarts[lineNumber];
-    }
-
-    /**
-     * Get position from offset for language service
-     */
-    private getPositionFromOffset(sourceFile: SourceFile, offset: number): { line: number; character: number } {
-        const lineStarts = this.getLineStarts(sourceFile);
-        const lineNumber = this.computeLineOfPosition(lineStarts, offset);
-        return {
-            line: lineNumber,
-            character: offset - lineStarts[lineNumber],
+    private reportGenericFPPatternViolation(
+        patternName: string,
+        constraintDescription: string,
+        node: Node,
+        sourceFile: SourceFile
+    ): void {
+        const diagnostic: DiagnosticWithLocation = {
+            file: sourceFile,
+            start: node.getStart(sourceFile),
+            length: node.getWidth(sourceFile),
+            messageText: `FP pattern '${patternName}' kind constraint violation: ${constraintDescription}`,
+            category: 1, // Error
+            code: applyKindDiagnosticAlias(9518),
+            reportsUnnecessary: false,
+            reportsDeprecated: false,
+            source: "ts.plus",
+            relatedInformation: this.generateQuickFixSuggestions(patternName, undefined, node, sourceFile)
         };
+        this.diagnostics.push(diagnostic);
     }
 
     /**
-     * Get line starts array for the source file
+     * Generate quick-fix suggestions for FP pattern violations
      */
-    private getLineStarts(sourceFile: SourceFile): readonly number[] {
-        return sourceFile.lineMap || (sourceFile.lineMap = this.computeLineStarts(sourceFile.text));
-    }
+    private generateQuickFixSuggestions(
+        patternName: string,
+        typeArgument: Type | undefined,
+        node: Node,
+        sourceFile: SourceFile
+    ): any[] {
+        const suggestions: any[] = [];
 
-    /**
-     * Compute line starts array from source text
-     */
-    private computeLineStarts(text: string): number[] {
-        const result: number[] = [];
-        let pos = 0;
-        let lineStart = 0;
-        while (pos < text.length) {
-            const ch = text.charCodeAt(pos);
-            pos++;
-            switch (ch) {
-                case 13: // CharacterCodes.carriageReturn
-                    if (text.charCodeAt(pos) === 10) { // CharacterCodes.lineFeed
-                        pos++;
-                    }
-                // falls through
-                case 10: // CharacterCodes.lineFeed
-                    result.push(lineStart);
-                    lineStart = pos;
-                    break;
-                default:
-                    if (ch > 127 && this.isLineBreak(ch)) {
-                        result.push(lineStart);
-                        lineStart = pos;
-                    }
-                    break;
-            }
-        }
-        result.push(lineStart);
-        return result;
-    }
+        // Suggestion 1: Change type parameter to Functor
+        suggestions.push({
+            category: 2, // Message
+            code: 9521,
+            messageText: "Change type parameter to Functor",
+            file: sourceFile,
+            start: node.getStart(sourceFile),
+            length: node.getWidth(sourceFile)
+        });
 
-    /**
-     * Compute line number from position using binary search
-     */
-    private computeLineOfPosition(lineStarts: readonly number[], position: number): number {
-        let lineNumber = this.binarySearch(lineStarts, position, (x) => x, (a, b) => a - b);
-        if (lineNumber < 0) {
-            // If the actual position was not found,
-            // the binary search returns the 2's-complement of the next line start
-            // e.g. if the line starts at [5, 10, 23, 80] and the position requested was 20
-            // then the search will return -2.
-            //
-            // We want the index of the previous line start, so we subtract 1.
-            lineNumber = ~lineNumber - 1;
-            if (lineNumber === -1) {
-                throw new Error("position cannot precede the beginning of the file");
-            }
-        }
-        return lineNumber;
-    }
-
-    /**
-     * Check if character code is a line break
-     */
-    private isLineBreak(ch: number): boolean {
-        return ch === 10 || // CharacterCodes.lineFeed
-               ch === 13 || // CharacterCodes.carriageReturn
-               ch === 8232 || // CharacterCodes.lineSeparator
-               ch === 8233; // CharacterCodes.paragraphSeparator
-    }
-
-    /**
-     * Binary search implementation
-     */
-    private binarySearch<T>(
-        array: readonly T[],
-        value: T,
-        keySelector: (x: T) => number,
-        comparer: (a: number, b: number) => number,
-        offset?: number
-    ): number {
-        if (!array.length) return -1;
-
-        let low = offset || 0;
-        let high = array.length - 1;
-
-        while (low <= high) {
-            const middle = low + ((high - low) >> 1);
-            const midValue = keySelector(array[middle]);
-            const comparison = comparer(midValue, keySelector(value));
-
-            if (comparison === 0) {
-                return middle;
-            } else if (comparison < 0) {
-                low = middle + 1;
-            } else {
-                high = middle - 1;
-            }
+        // Suggestion 2: Wrap type in Functor<...>
+        if (typeArgument) {
+            const typeName = this.getTypeName(typeArgument);
+            suggestions.push({
+                category: 2, // Message
+                code: 9522,
+                messageText: `Wrap type in Functor<${typeName}>`,
+                file: sourceFile,
+                start: node.getStart(sourceFile),
+                length: node.getWidth(sourceFile)
+            });
         }
 
-        return ~low;
+        // Suggestion 3: Replace with known functor
+        suggestions.push({
+            category: 2, // Message
+            code: 9523,
+            messageText: "Replace with known functor",
+            file: sourceFile,
+            start: node.getStart(sourceFile),
+            length: node.getWidth(sourceFile)
+        });
+
+        return suggestions;
     }
 
     /**
-     * Get severity for category
+     * Format kind metadata for diagnostic display
      */
-    private getSeverityForCategory(category: string): number {
-        switch (category) {
-            case "Error":
-                return 1; // Error
-            case "Warning":
-                return 2; // Warning
-            case "Suggestion":
-                return 3; // Information
-            case "Message":
-                return 4; // Hint
-            default:
-                return 1; // Default to error
+    private formatKindForDiagnostic(kindMetadata: KindMetadata): string {
+        if (!kindMetadata.isValid) {
+            return "invalid kind";
         }
+
+        if (kindMetadata.isBuiltInAlias && kindMetadata.aliasName) {
+            return kindMetadata.aliasName;
+        }
+
+        return `Kind<${kindMetadata.parameterKinds.map(k => this.getTypeName(k)).join(", ")}>`;
     }
 
     /**
-     * Check if diagnostics should be reported
-     * This can be used to control diagnostic reporting based on compiler options
+     * Get a readable name for a type
      */
-    shouldReportDiagnostics(): boolean {
-        // Check compiler options and other conditions
-        const compilerOptions = this.program.getCompilerOptions();
-        
-        // Check if kind diagnostics are enabled
-        if ((compilerOptions as any).noKindDiagnostics) {
+    private getTypeName(type: Type): string {
+        if (type.symbol) {
+            return (type.symbol as any).name || "unknown";
+        }
+        return "unknown";
+    }
+
+    /**
+     * Validate and report FP pattern kind constraints
+     */
+    validateAndReportFPPatternConstraint(
+        patternName: string,
+        typeArgument: Type,
+        node: Node,
+        sourceFile: SourceFile
+    ): boolean {
+        const validationResult = validateFPPatternKindConstraint(
+            patternName,
+            typeArgument,
+            this.checker
+        );
+
+        if (!validationResult.isValid) {
+            this.reportFPPatternKindConstraintViolation(
+                patternName,
+                typeArgument,
+                node,
+                sourceFile
+            );
             return false;
         }
-        
-        // Check if we're in a context where diagnostics should be reported
-        // For example, don't report during declaration emit
-        if ((compilerOptions as any).declaration) {
-            return false;
-        }
-        
-        // Check if we have any diagnostics to report
-        if (this.diagnostics.length === 0) {
-            return false;
-        }
-        
-        // Check if we're in a test environment
-        if ((globalThis as any).__JEST_WORKER_ID__) {
-            return false;
-        }
-        
         return true;
     }
 
     /**
-     * Get diagnostic statistics
+     * Report kind compatibility issues
      */
-    getDiagnosticStats(): { total: number; errors: number; warnings: number; suggestions: number } {
-        const stats = {
-            total: this.diagnostics.length,
-            errors: 0,
-            warnings: 0,
-            suggestions: 0
+    reportKindCompatibilityIssue(
+        expectedKind: KindMetadata,
+        actualKind: KindMetadata,
+        node: Node,
+        sourceFile: SourceFile
+    ): void {
+        const diagnostic: DiagnosticWithLocation = {
+            file: sourceFile,
+            start: node.getStart(sourceFile),
+            length: node.getWidth(sourceFile),
+            messageText: `Expected kind ${this.formatKindForDiagnostic(expectedKind)}, but got ${this.formatKindForDiagnostic(actualKind)}`,
+            category: 1, // Error
+            code: 9512, // Type parameter violates kind constraint
+            reportsUnnecessary: false,
+            reportsDeprecated: false,
+            source: "ts.plus"
         };
+        this.diagnostics.push(diagnostic);
+    }
 
-        for (const diagnostic of this.diagnostics) {
-            switch (diagnostic.category) {
-                case "Error":
-                    stats.errors++;
-                    break;
-                case "Warning":
-                    stats.warnings++;
-                    break;
-                case "Suggestion":
-                    stats.suggestions++;
-                    break;
+    /**
+     * Report kind comparison results
+     */
+    reportKindComparisonResult(
+        result: KindComparisonResult,
+        node: Node,
+        sourceFile: SourceFile
+    ): void {
+        if (result.errors.length > 0) {
+            for (const error of result.errors) {
+                const diagnostic: DiagnosticWithLocation = {
+                    file: sourceFile,
+                    start: node.getStart(sourceFile),
+                    length: node.getWidth(sourceFile),
+                    messageText: error.message,
+                    category: 1, // Error
+                    code: 9512, // Type parameter violates kind constraint
+                    reportsUnnecessary: false,
+                    reportsDeprecated: false,
+                    source: "ts.plus"
+                };
+                this.diagnostics.push(diagnostic);
             }
         }
 
-        return stats;
-    }
-}
-
-/**
- * Create a kind diagnostic reporter for a program
- */
-export function createKindDiagnosticReporter(program: Program): KindDiagnosticReporter {
-    return new KindDiagnosticReporter(program);
-}
-
-/**
- * Report kind diagnostics to the program
- * This is the main entry point for reporting kind diagnostics
- */
-export function reportKindDiagnostics(
-    program: Program,
-    results: Array<{ result: KindComparisonResult; node: Node; sourceFile: SourceFile }>
-): void {
-    const reporter = createKindDiagnosticReporter(program);
-
-    for (const { result, node, sourceFile } of results) {
-        reporter.reportKindComparison(result, node, sourceFile);
-    }
-
-    if (reporter.shouldReportDiagnostics()) {
-        reporter.reportToProgram();
+        if (result.warnings.length > 0) {
+            for (const warning of result.warnings) {
+                const diagnostic: DiagnosticWithLocation = {
+                    file: sourceFile,
+                    start: node.getStart(sourceFile),
+                    length: node.getWidth(sourceFile),
+                    messageText: warning.message,
+                    category: 2, // Warning
+                    code: 9512,
+                    reportsUnnecessary: false,
+                    reportsDeprecated: false,
+                    source: "ts.plus"
+                };
+                this.diagnostics.push(diagnostic);
+            }
+        }
     }
 } 

@@ -8587,5 +8587,29 @@
     "Type alias '{0}' kind mismatch: declared '{1}', defined '{2}'": {
         "category": "Error",
         "code": 9517
+    },
+    "FP pattern '{0}' kind constraint violation: {1}": {
+        "category": "Error",
+        "code": 9518
+    },
+    "The first type parameter of 'Free' must be a unary functor (Kind<Type, Type>). Found: {0}": {
+        "category": "Error",
+        "code": 9519
+    },
+    "The type parameter of 'Fix' must be a unary functor (Kind<Type, Type>). Found: {0}": {
+        "category": "Error",
+        "code": 9520
+    },
+    "Change type parameter to Functor": {
+        "category": "Message",
+        "code": 9521
+    },
+    "Wrap type in Functor<...>": {
+        "category": "Message",
+        "code": 9522
+    },
+    "Replace with known functor": {
+        "category": "Message",
+        "code": 9523
     }
 }

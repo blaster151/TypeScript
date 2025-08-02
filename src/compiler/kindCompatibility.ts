@@ -16,7 +16,17 @@ import {
     CallExpression,
     NewExpression,
     FunctionTypeNode,
+    KindMetadata,
+    KindSource,
 } from "./types.js";
+import { 
+    retrieveKindMetadata, 
+    isBuiltInKindAliasSymbol, 
+    getBuiltInAliasName,
+    getExpandedKindSignature 
+} from "./kindMetadata.js";
+import { KindComparisonResult } from "./kindComparison.js";
+import { applyKindDiagnosticAlias } from "./kindDiagnosticAlias.js";
 
 /**
  * Context information for kind validation
@@ -560,4 +570,286 @@ function extractExpectedKindFromConditionalType(
 export function isKindContext(node: Node, checker: TypeChecker): boolean {
     const context = isKindSensitiveContext(node, checker);
     return context.isKindSensitive;
+} 
+
+/**
+ * Check if two kinds are compatible
+ * This treats built-in aliases as equivalent to their expanded forms
+ */
+export function areKindsCompatible(
+    kind1: KindMetadata,
+    kind2: KindMetadata,
+    checker: TypeChecker
+): boolean {
+    // If both are built-in aliases, check if they're the same alias
+    if (kind1.isBuiltInAlias && kind2.isBuiltInAlias) {
+        return kind1.aliasName === kind2.aliasName;
+    }
+
+    // If one is a built-in alias, expand it and compare
+    if (kind1.isBuiltInAlias) {
+        const expandedKind1 = expandBuiltInAlias(kind1, checker);
+        return areKindsCompatible(expandedKind1, kind2, checker);
+    }
+
+    if (kind2.isBuiltInAlias) {
+        const expandedKind2 = expandBuiltInAlias(kind2, checker);
+        return areKindsCompatible(kind1, expandedKind2, checker);
+    }
+
+    // Standard kind compatibility check
+    return checkStandardKindCompatibility(kind1, kind2, checker);
+}
+
+/**
+ * Expand a built-in alias to its equivalent Kind<...> form
+ */
+function expandBuiltInAlias(
+    aliasKind: KindMetadata,
+    checker: TypeChecker
+): KindMetadata {
+    if (!aliasKind.isBuiltInAlias || !aliasKind.aliasName) {
+        return aliasKind;
+    }
+
+    // Get the expanded signature for the alias
+    const expandedSignature = getExpandedKindSignature(aliasKind.aliasName);
+    
+    // Create a synthetic kind metadata that represents the expanded form
+    const expandedKind: KindMetadata = {
+        arity: aliasKind.arity,
+        parameterKinds: aliasKind.parameterKinds,
+        retrievedFrom: KindSource.ExplicitAnnotation,
+        symbol: aliasKind.symbol,
+        isValid: true,
+        // Remove alias-specific flags for expanded comparison
+        isBuiltInAlias: false,
+        aliasName: undefined
+    };
+
+    return expandedKind;
+}
+
+/**
+ * Standard kind compatibility check (without alias expansion)
+ */
+function checkStandardKindCompatibility(
+    kind1: KindMetadata,
+    kind2: KindMetadata,
+    checker: TypeChecker
+): boolean {
+    // Check arity compatibility
+    if (kind1.arity !== kind2.arity) {
+        return false;
+    }
+
+    // Check parameter kinds compatibility
+    if (kind1.parameterKinds.length !== kind2.parameterKinds.length) {
+        return false;
+    }
+
+    for (let i = 0; i < kind1.parameterKinds.length; i++) {
+        const param1 = kind1.parameterKinds[i];
+        const param2 = kind2.parameterKinds[i];
+        
+        if (!checker.isTypeAssignableTo(param1, param2) && 
+            !checker.isTypeAssignableTo(param2, param1)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Validate kind constraints for FP patterns
+ * This ensures that Free and Fix patterns receive valid unary functors
+ */
+export function validateFPPatternConstraints(
+    patternName: string,
+    typeArguments: Type[],
+    checker: TypeChecker
+): { isValid: boolean; errorMessage?: string } {
+    if (patternName !== "Free" && patternName !== "Fix") {
+        return { isValid: true }; // Not an FP pattern
+    }
+
+    if (typeArguments.length === 0) {
+        return {
+            isValid: false,
+            errorMessage: `${patternName} requires at least one type argument`
+        };
+    }
+
+    // Get the first type argument (the functor)
+    const functorType = typeArguments[0];
+    const functorSymbol = functorType.symbol;
+    
+    if (!functorSymbol) {
+        return {
+            isValid: false,
+            errorMessage: `Type argument for ${patternName} must be a type constructor`
+        };
+    }
+
+    // Get kind metadata for the functor
+    const functorKind = retrieveKindMetadata(functorSymbol, checker);
+    
+    if (!functorKind.isValid) {
+        return {
+            isValid: false,
+            errorMessage: `Type argument for ${patternName} must have valid kind information`
+        };
+    }
+
+    // Check if the functor is a unary functor (arity 2)
+    if (functorKind.arity !== 2) {
+        return {
+            isValid: false,
+            errorMessage: `${patternName} requires a unary functor (Kind<Type, Type>), but got arity ${functorKind.arity}`
+        };
+    }
+
+    // For Free, check if we have a second type argument
+    if (patternName === "Free" && typeArguments.length < 2) {
+        return {
+            isValid: false,
+            errorMessage: `Free requires two type arguments: Free<F, A>`
+        };
+    }
+
+    return { isValid: true };
+}
+
+/**
+ * Compare kinds with built-in alias support
+ * This provides detailed comparison results for diagnostics
+ */
+export function compareKindsWithAliasSupport(
+    expectedKind: KindMetadata,
+    actualKind: KindMetadata,
+    checker: TypeChecker
+): KindComparisonResult {
+    const result: KindComparisonResult = {
+        isCompatible: false,
+        arityMatch: false,
+        parameterKindsMatch: false,
+        varianceCompatible: false,
+        aliasResolved: false,
+        errors: [],
+        warnings: []
+    };
+
+    // Check if either kind is a built-in alias
+    const expectedIsAlias = expectedKind.isBuiltInAlias;
+    const actualIsAlias = actualKind.isBuiltInAlias;
+
+    // If both are aliases, compare directly
+    if (expectedIsAlias && actualIsAlias) {
+        result.aliasResolved = true;
+        result.isCompatible = expectedKind.aliasName === actualKind.aliasName;
+        
+        if (!result.isCompatible) {
+            result.errors.push({
+                code: "KIND_ALIAS_MISMATCH",
+                message: `Expected kind alias '${expectedKind.aliasName}', but got '${actualKind.aliasName}'`
+            });
+        }
+        
+        return result;
+    }
+
+    // If one is an alias, expand it for comparison
+    let expandedExpected = expectedKind;
+    let expandedActual = actualKind;
+
+    if (expectedIsAlias) {
+        expandedExpected = expandBuiltInAlias(expectedKind, checker);
+        result.aliasResolved = true;
+    }
+
+    if (actualIsAlias) {
+        expandedActual = expandBuiltInAlias(actualKind, checker);
+        result.aliasResolved = true;
+    }
+
+    // Perform standard comparison on expanded kinds
+    result.arityMatch = expandedExpected.arity === expandedActual.arity;
+    result.parameterKindsMatch = expandedExpected.parameterKinds.length === expandedActual.parameterKinds.length;
+    
+    if (!result.arityMatch) {
+        result.errors.push({
+            code: "KIND_ARITY_MISMATCH",
+            message: `Expected kind with arity ${expandedExpected.arity}, but got arity ${expandedActual.arity}`
+        });
+    }
+
+    if (result.arityMatch && result.parameterKindsMatch) {
+        // Check parameter kind compatibility
+        let allParamsMatch = true;
+        for (let i = 0; i < expandedExpected.parameterKinds.length; i++) {
+            const expectedParam = expandedExpected.parameterKinds[i];
+            const actualParam = expandedActual.parameterKinds[i];
+            
+            if (!checker.isTypeAssignableTo(expectedParam, actualParam) && 
+                !checker.isTypeAssignableTo(actualParam, expectedParam)) {
+                allParamsMatch = false;
+                result.errors.push({
+                    code: "KIND_PARAMETER_MISMATCH",
+                    message: `Parameter ${i + 1} kind mismatch: expected ${expectedParam}, got ${actualParam}`
+                });
+            }
+        }
+        
+        result.varianceCompatible = allParamsMatch;
+    }
+
+    result.isCompatible = result.arityMatch && result.parameterKindsMatch && result.varianceCompatible;
+
+    return result;
+}
+
+/**
+ * Get diagnostic message for kind compatibility issues
+ */
+export function getKindCompatibilityDiagnostic(
+    expectedKind: KindMetadata,
+    actualKind: KindMetadata,
+    checker: TypeChecker
+): { message: string; code: number } {
+    const comparison = compareKindsWithAliasSupport(expectedKind, actualKind, checker);
+    
+    if (comparison.isCompatible) {
+        return { message: "", code: 0 };
+    }
+
+    // Handle alias-specific messages
+    if (expectedKind.isBuiltInAlias && actualKind.isBuiltInAlias) {
+        return {
+            message: `Expected kind alias '${expectedKind.aliasName}', but got '${actualKind.aliasName}'`,
+            code: applyKindDiagnosticAlias(9512) // Type parameter violates kind constraint
+        };
+    }
+
+    if (expectedKind.isBuiltInAlias) {
+        const expandedSignature = getExpandedKindSignature(expectedKind.aliasName!);
+        return {
+            message: `Expected ${expectedKind.aliasName} (${expandedSignature}), but got incompatible kind`,
+            code: applyKindDiagnosticAlias(9512)
+        };
+    }
+
+    if (actualKind.isBuiltInAlias) {
+        const expandedSignature = getExpandedKindSignature(actualKind.aliasName!);
+        return {
+            message: `Expected compatible kind, but got ${actualKind.aliasName} (${expandedSignature})`,
+            code: applyKindDiagnosticAlias(9512)
+        };
+    }
+
+    // Standard kind mismatch message
+    return {
+        message: `Expected kind with arity ${expectedKind.arity}, but got arity ${actualKind.arity}`,
+        code: applyKindDiagnosticAlias(9512)
+    };
 } 

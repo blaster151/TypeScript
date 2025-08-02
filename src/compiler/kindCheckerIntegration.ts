@@ -11,13 +11,23 @@ import {
     SyntaxKind,
 } from "./types.js";
 import { 
-    isKindSensitiveContext 
+    isKindSensitiveContext,
+    areKindsCompatible,
+    validateFPPatternConstraints,
+    compareKindsWithAliasSupport,
+    getKindCompatibilityDiagnostic
 } from "./kindCompatibility.js";
-import { retrieveKindMetadata } from "./kindRetrieval.js";
+import { 
+    retrieveKindMetadata,
+    isBuiltInKindAliasSymbol,
+    getBuiltInAliasName,
+    getExpandedKindSignature
+} from "./kindMetadata.js";
 import { compareKinds } from "./kindComparison.js";
 import { createKindDiagnosticReporter } from "./kindDiagnosticReporter.js";
 import { KindDiagnosticCodes } from "./kindDiagnostics.js";
 import { globalKindConstraintMap } from "./kindConstraintPropagation.js";
+import { applyKindDiagnosticAlias } from "./kindDiagnosticAlias.js";
 
 /**
  * Integration point 1: checkTypeReference() - Call kind compatibility validation
@@ -48,8 +58,8 @@ export function integrateKindValidationInCheckTypeReference(
                         isValid: true
                     };
                     
-                    // Invoke validateKindCompatibility
-                    const validation = compareKinds(expectedKind, actualKind, checker, false);
+                    // Enhanced kind compatibility check with alias support
+                    const validation = compareKindsWithAliasSupport(expectedKind, actualKind, checker);
                     
                     // Store results for downstream use
                     const kindCheckResult = {
@@ -62,13 +72,51 @@ export function integrateKindValidationInCheckTypeReference(
                     
                     // Emit diagnostics for violations
                     if (!validation.isCompatible) {
-                        const reporter = createKindDiagnosticReporter();
-                        reporter.reportKindComparison(validation, node, sourceFile);
-                        diagnostics.push(...reporter.getDiagnostics());
+                        const diagnostic = getKindCompatibilityDiagnostic(expectedKind, actualKind, checker);
+                        if (diagnostic.message) {
+                            diagnostics.push({
+                                file: sourceFile,
+                                start: node.getStart(sourceFile),
+                                length: node.getWidth(sourceFile),
+                                messageText: diagnostic.message,
+                                category: 1, // Error
+                                code: diagnostic.code,
+                                reportsUnnecessary: false,
+                                reportsDeprecated: false,
+                                source: "ts.plus"
+                            });
+                        }
                     }
                     
                     return { hasKindValidation: true, diagnostics };
                 }
+            }
+        }
+    }
+    
+    // Check for FP pattern constraint violations (Free, Fix)
+    if (node.typeArguments && node.typeArguments.length > 0) {
+        const typeName = (node.typeName as any).escapedText;
+        if (typeName === "Free" || typeName === "Fix") {
+            const typeArguments = node.typeArguments.map(arg => checker.getTypeFromTypeNode(arg));
+            const validation = validateFPPatternConstraints(typeName, typeArguments, checker);
+            
+            if (!validation.isValid) {
+                const diagnosticCode = typeName === "Free" ? 9519 : 9520;
+                const message = validation.errorMessage || `FP pattern '${typeName}' kind constraint violation`;
+                
+                diagnostics.push({
+                    file: sourceFile,
+                    start: node.getStart(sourceFile),
+                    length: node.getWidth(sourceFile),
+                    messageText: message,
+                    category: 1, // Error
+                    code: diagnosticCode,
+                    reportsUnnecessary: false,
+                    reportsDeprecated: false,
+                    source: "ts.plus",
+                    relatedInformation: generateQuickFixSuggestions(typeName, typeArguments[0], node, sourceFile)
+                });
             }
         }
     }
@@ -98,23 +146,42 @@ export function integrateKindValidationInCheckTypeArgumentConstraints(
         if (constraint) {
             // Get the actual kind of the type argument
             const actualKind = retrieveKindMetadata(typeArg.symbol, checker, false);
-            if (actualKind) {
-                // Run validateKindCompatibility with the constraint as expected
-                const validation = compareKinds(constraint.expectedKind, actualKind, checker, false);
+            if (actualKind && actualKind.isValid) {
+                // Create expected kind from constraint
+                const expectedKind = {
+                    arity: constraint.arity,
+                    parameterKinds: constraint.parameterKinds || [],
+                    symbol: typeArg.symbol,
+                    retrievedFrom: "constraint",
+                    isValid: true
+                };
+                
+                // Enhanced kind compatibility check with alias support
+                const validation = compareKindsWithAliasSupport(expectedKind, actualKind, checker);
                 
                 if (!validation.isCompatible) {
                     violations.push({
-                        typeParameter: typeParam,
                         typeArgument: typeArg,
-                        expectedKind: constraint.expectedKind,
+                        typeParameter: typeParam,
+                        expectedKind,
                         actualKind,
                         validation
                     });
                     
-                    // Emit kind-specific diagnostics here (not later)
-                    const reporter = createKindDiagnosticReporter();
-                    reporter.reportKindComparison(validation, typeParam, sourceFile);
-                    diagnostics.push(...reporter.getDiagnostics());
+                    const diagnostic = getKindCompatibilityDiagnostic(expectedKind, actualKind, checker);
+                    if (diagnostic.message) {
+                        diagnostics.push({
+                            file: sourceFile,
+                            start: typeParam.getStart(sourceFile),
+                            length: typeParam.getWidth(sourceFile),
+                            messageText: diagnostic.message,
+                            category: 1, // Error
+                            code: diagnostic.code,
+                            reportsUnnecessary: false,
+                            reportsDeprecated: false,
+                            source: "ts.plus"
+                        });
+                    }
                 }
             }
         }
@@ -124,7 +191,7 @@ export function integrateKindValidationInCheckTypeArgumentConstraints(
 }
 
 /**
- * Integration point 3: checkTypeAliasDeclaration() - Validate declared kind matches definition
+ * Integration point 3: checkTypeAliasDeclaration() - Validate kind consistency
  */
 export function integrateKindValidationInCheckTypeAliasDeclaration(
     node: TypeAliasDeclaration,
@@ -133,36 +200,25 @@ export function integrateKindValidationInCheckTypeAliasDeclaration(
 ): { diagnostics: any[] } {
     const diagnostics: any[] = [];
     
-    // Check if this is a type alias with Kind<...> on the right-hand side
-    if (node.type && isKindTypeReference(node.type, checker)) {
-        // Extract kind metadata from the right-hand side
-        const rhsKind = extractKindFromTypeNode(node.type, checker);
-        
-        if (rhsKind) {
-            // Check if there's an explicit kind constraint declared for the alias
-            const symbol = checker.getSymbolAtLocation(node.name);
-            if (symbol) {
-                const explicitKind = retrieveKindMetadata(symbol, checker, false);
-                
-                if (explicitKind) {
-                    // Compare with any explicit kind constraint declared for the alias
-                    const validation = compareKinds(explicitKind, rhsKind, checker, false);
-                    
-                    if (!validation.isCompatible) {
-                        // Emit TypeAliasKindMismatch diagnostic
-                        const diagnostic = {
-                            code: KindDiagnosticCodes.TypeAliasKindMismatch,
-                            message: `Type alias '${node.name.escapedText}' kind mismatch: declared ${formatKind(explicitKind)}, defined ${formatKind(rhsKind)}`,
-                            node: node,
-                            sourceFile: sourceFile,
-                            category: "Error"
-                        };
-                        diagnostics.push(diagnostic);
-                    }
-                } else {
-                    // If no explicit kind constraint, optionally infer and attach kind metadata
-                    attachInferredKindMetadata(symbol, rhsKind, checker);
-                }
+    // Check if this is a built-in kind alias declaration
+    const symbol = checker.getSymbolAtLocation(node.name);
+    if (symbol && isBuiltInKindAliasSymbol(symbol)) {
+        const aliasName = getBuiltInAliasName(symbol);
+        if (aliasName) {
+            // Validate that the alias has the correct kind metadata
+            const kindMetadata = retrieveKindMetadata(symbol, checker, false);
+            if (!kindMetadata.isValid) {
+                diagnostics.push({
+                    file: sourceFile,
+                    start: node.getStart(sourceFile),
+                    length: node.getWidth(sourceFile),
+                    messageText: `Kind alias '${aliasName}' must have valid kind metadata`,
+                    category: 1, // Error
+                    code: applyKindDiagnosticAlias(9512),
+                    reportsUnnecessary: false,
+                    reportsDeprecated: false,
+                    source: "ts.plus"
+                });
             }
         }
     }
@@ -171,7 +227,7 @@ export function integrateKindValidationInCheckTypeAliasDeclaration(
 }
 
 /**
- * Integration point 4: checkHeritageClauses() - Enforce kind correctness on extended/implemented types
+ * Integration point 4: checkHeritageClauses() - Validate kind inheritance
  */
 export function integrateKindValidationInCheckHeritageClauses(
     heritageClauses: readonly HeritageClause[],
@@ -182,54 +238,34 @@ export function integrateKindValidationInCheckHeritageClauses(
     
     for (const clause of heritageClauses) {
         for (const typeRef of clause.types) {
-            const baseType = checker.getTypeFromTypeReferenceNode(typeRef);
-            const baseSymbol = checker.getSymbolAtLocation(typeRef.expression);
+            const baseType = checker.getTypeFromTypeNode(typeRef.expression);
+            const baseSymbol = baseType.symbol;
             
             if (baseSymbol) {
                 const baseKind = retrieveKindMetadata(baseSymbol, checker, false);
-                
-                if (baseKind) {
-                    // For extends clauses: compare against subclass type kind
-                    if (clause.token === SyntaxKind.ExtendsKeyword) {
-                        const subclassSymbol = getSubclassSymbol(clause, checker);
-                        if (subclassSymbol) {
-                            const subclassKind = retrieveKindMetadata(subclassSymbol, checker, false);
-                            if (subclassKind) {
-                                // Ensure arity matches
-                                if (baseKind.arity !== subclassKind.arity) {
-                                    const diagnostic = {
-                                        code: KindDiagnosticCodes.TypeConstructorArityMismatch,
-                                        message: `Heritage clause arity mismatch: base has ${baseKind.arity} parameters, subclass has ${subclassKind.arity}`,
-                                        node: clause,
-                                        sourceFile: sourceFile,
-                                        category: "Error"
-                                    };
-                                    diagnostics.push(diagnostic);
-                                }
-                                
-                                // Ensure parameter kinds match or are compatible under variance rules
-                                const validation = compareKinds(baseKind, subclassKind, checker, false);
-                                if (!validation.isCompatible) {
-                                    const reporter = createKindDiagnosticReporter();
-                                    reporter.reportKindComparison(validation, clause, sourceFile);
-                                    diagnostics.push(...reporter.getDiagnostics());
-                                }
-                            }
-                        }
-                    }
-                    
-                    // For implements clauses: apply same validation for each implemented interface
-                    if (clause.token === SyntaxKind.ImplementsKeyword) {
-                        // Similar validation for implemented interfaces
-                        const implementingSymbol = getImplementingSymbol(clause, checker);
-                        if (implementingSymbol) {
-                            const implementingKind = retrieveKindMetadata(implementingSymbol, checker, false);
-                            if (implementingKind) {
-                                const validation = compareKinds(baseKind, implementingKind, checker, false);
-                                if (!validation.isCompatible) {
-                                    const reporter = createKindDiagnosticReporter();
-                                    reporter.reportKindComparison(validation, clause, sourceFile);
-                                    diagnostics.push(...reporter.getDiagnostics());
+                if (baseKind && baseKind.isValid) {
+                    // Check if the current class/interface has kind constraints
+                    const currentSymbol = getCurrentSymbol(clause, checker);
+                    if (currentSymbol) {
+                        const currentKind = retrieveKindMetadata(currentSymbol, checker, false);
+                        if (currentKind && currentKind.isValid) {
+                            // Enhanced kind compatibility check with alias support
+                            const validation = compareKindsWithAliasSupport(baseKind, currentKind, checker);
+                            
+                            if (!validation.isCompatible) {
+                                const diagnostic = getKindCompatibilityDiagnostic(baseKind, currentKind, checker);
+                                if (diagnostic.message) {
+                                    diagnostics.push({
+                                        file: sourceFile,
+                                        start: typeRef.getStart(sourceFile),
+                                        length: typeRef.getWidth(sourceFile),
+                                        messageText: diagnostic.message,
+                                        category: 1, // Error
+                                        code: diagnostic.code,
+                                        reportsUnnecessary: false,
+                                        reportsDeprecated: false,
+                                        source: "ts.plus"
+                                    });
                                 }
                             }
                         }
@@ -243,7 +279,7 @@ export function integrateKindValidationInCheckHeritageClauses(
 }
 
 /**
- * Integration point 5: checkMappedType() - Propagate kind constraints into mapped types
+ * Integration point 5: checkMappedType() - Validate kind constraints in mapped types
  */
 export function integrateKindValidationInCheckMappedType(
     node: MappedTypeNode,
@@ -252,30 +288,38 @@ export function integrateKindValidationInCheckMappedType(
 ): { diagnostics: any[] } {
     const diagnostics: any[] = [];
     
-    // Before checking members, check if the mapped type's keyof constraint or in expression is a kind
-    if (node.typeParameter.constraint && isKindTypeReference(node.typeParameter.constraint, checker)) {
-        const constraintKind = extractKindFromTypeNode(node.typeParameter.constraint, checker);
+    // Check if the mapped type has kind constraints
+    if (node.constraintType) {
+        const constraintType = checker.getTypeFromTypeNode(node.constraintType);
+        const constraintSymbol = constraintType.symbol;
         
-        if (constraintKind) {
-            // Apply the constraint to all generated property types
-            // Ensure that any type parameter used in the mapped type respects its kind constraint
-            
-            // Check if the mapped type's type parameter has kind constraints
-            const typeParamSymbol = checker.getSymbolAtLocation(node.typeParameter.name);
-            if (typeParamSymbol) {
-                const typeParamKind = retrieveKindMetadata(typeParamSymbol, checker, false);
-                if (typeParamKind) {
-                    const validation = compareKinds(constraintKind, typeParamKind, checker, false);
-                    if (!validation.isCompatible) {
-                        // Emit diagnostic at the mapped type declaration
-                        const diagnostic = {
-                            code: KindDiagnosticCodes.TypeConstructorKindParameterMismatch,
-                            message: `Mapped type constraint kind mismatch: expected ${formatKind(constraintKind)}, got ${formatKind(typeParamKind)}`,
-                            node: node,
-                            sourceFile: sourceFile,
-                            category: "Error"
-                        };
-                        diagnostics.push(diagnostic);
+        if (constraintSymbol) {
+            const constraintKind = retrieveKindMetadata(constraintSymbol, checker, false);
+            if (constraintKind && constraintKind.isValid) {
+                // Check if the mapped type parameter satisfies the constraint
+                const typeParamSymbol = checker.getSymbolAtLocation(node.typeParameter.name);
+                if (typeParamSymbol) {
+                    const paramKind = retrieveKindMetadata(typeParamSymbol, checker, false);
+                    if (paramKind && paramKind.isValid) {
+                        // Enhanced kind compatibility check with alias support
+                        const validation = compareKindsWithAliasSupport(constraintKind, paramKind, checker);
+                        
+                        if (!validation.isCompatible) {
+                            const diagnostic = getKindCompatibilityDiagnostic(constraintKind, paramKind, checker);
+                            if (diagnostic.message) {
+                                diagnostics.push({
+                                    file: sourceFile,
+                                    start: node.typeParameter.getStart(sourceFile),
+                                    length: node.typeParameter.getWidth(sourceFile),
+                                    messageText: diagnostic.message,
+                                    category: 1, // Error
+                                    code: diagnostic.code,
+                                    reportsUnnecessary: false,
+                                    reportsDeprecated: false,
+                                    source: "ts.plus"
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -285,73 +329,122 @@ export function integrateKindValidationInCheckMappedType(
     return { diagnostics };
 }
 
-// Helper functions
-
-function isKindTypeReference(node: Node, checker: TypeChecker): boolean {
-    if (node.kind === SyntaxKind.KindType) {
-        return true;
+/**
+ * Generate quick-fix suggestions for FP pattern constraint violations
+ */
+function generateQuickFixSuggestions(
+    patternName: string,
+    typeArgument: Type,
+    node: Node,
+    sourceFile: SourceFile
+): any[] {
+    const suggestions: any[] = [];
+    
+    // Suggestion 1: Change type parameter to Functor
+    suggestions.push({
+        category: 2, // Message
+                            code: applyKindDiagnosticAlias(9521),
+        messageText: "Change type parameter to Functor",
+        file: sourceFile,
+        start: node.getStart(sourceFile),
+        length: node.getWidth(sourceFile)
+    });
+    
+    // Suggestion 2: Wrap type in Functor<...>
+    if (typeArgument.symbol) {
+        const typeName = (typeArgument.symbol as any).name;
+        if (typeName) {
+            suggestions.push({
+                category: 2, // Message
+                                    code: applyKindDiagnosticAlias(9522),
+                messageText: `Wrap type in Functor<${typeName}>`,
+                file: sourceFile,
+                start: node.getStart(sourceFile),
+                length: node.getWidth(sourceFile)
+            });
+        }
     }
     
+    // Suggestion 3: Replace with known functor
+    suggestions.push({
+        category: 2, // Message
+                            code: applyKindDiagnosticAlias(9523),
+        messageText: "Replace with known functor",
+        file: sourceFile,
+        start: node.getStart(sourceFile),
+        length: node.getWidth(sourceFile)
+    });
+    
+    return suggestions;
+}
+
+/**
+ * Get the related heritage symbol based on clause kind
+ * 
+ * @param symbol - The base symbol (class/interface)
+ * @param clauseKind - The heritage clause kind (ExtendsKeyword or ImplementsKeyword)
+ * @param checker - The type checker instance
+ * @returns The related symbol from the heritage clause
+ */
+function getRelatedHeritageSymbol(symbol: Symbol, clauseKind: SyntaxKind, checker: TypeChecker): Symbol | undefined {
+    // Get the declaration node for the symbol
+    const declarations = symbol.declarations;
+    if (!declarations || declarations.length === 0) {
+        return undefined;
+    }
+    
+    const declaration = declarations[0];
+    if (!declaration.heritageClauses) {
+        return undefined;
+    }
+    
+    // Find the heritage clause with the specified kind
+    const heritageClause = declaration.heritageClauses.find(clause => clause.token === clauseKind);
+    if (!heritageClause || heritageClause.types.length === 0) {
+        return undefined;
+    }
+    
+    // Get the first type reference from the heritage clause
+    const typeRef = heritageClause.types[0];
+    const baseType = checker.getTypeFromTypeNode(typeRef.expression);
+    
+    return baseType.symbol;
+}
+
+/**
+ * Get the current symbol from heritage clause context
+ */
+function getCurrentSymbol(clause: HeritageClause, checker: TypeChecker): any {
+    const parent = clause.parent;
+    if (parent) {
+        return checker.getSymbolAtLocation(parent.name || parent);
+    }
+    return undefined;
+}
+
+/**
+ * Check if a node is a kind type reference
+ */
+function isKindTypeReference(node: Node, checker: TypeChecker): boolean {
     if (node.kind === SyntaxKind.TypeReference) {
         const typeRef = node as TypeReferenceNode;
-        const symbol = checker.getSymbolAtLocation(typeRef.typeName);
-        if (symbol) {
-            const type = checker.getTypeOfSymbolAtLocation(symbol, typeRef);
-            return !!(type.flags & 0x80000000); // TypeFlags.Kind
+        const typeName = (typeRef.typeName as any).escapedText;
+        
+        // Check for Kind keyword
+        if (typeName === "Kind") {
+            return true;
+        }
+        
+        // Check if this is a built-in kind alias
+        if (typeName === "Functor" || typeName === "Bifunctor") {
+            return true;
+        }
+        
+        // Check for FP patterns
+        if (typeName === "Free" || typeName === "Fix") {
+            return true;
         }
     }
     
     return false;
-}
-
-function extractKindFromTypeNode(node: Node, checker: TypeChecker): any {
-    if (isKindTypeReference(node, checker)) {
-        const symbol = checker.getSymbolAtLocation(node);
-        if (symbol) {
-            return retrieveKindMetadata(symbol, checker, false);
-        }
-    }
-    return null;
-}
-
-function attachInferredKindMetadata(symbol: any, kind: any, checker: TypeChecker): void {
-    // Store inferred kind metadata in symbol.links
-    if (!symbol.links) {
-        symbol.links = {};
-    }
-    
-    symbol.links.kindArity = kind.arity;
-    symbol.links.parameterKinds = kind.parameterKinds;
-    symbol.links.kindFlags = kind.flags || 0;
-    symbol.links.isInferredKind = true;
-}
-
-function getSubclassSymbol(clause: HeritageClause, checker: TypeChecker): any {
-    // Walk up the AST to find the class declaration that contains this heritage clause
-    let current: Node | undefined = clause;
-    while (current && current.parent) {
-        if (current.parent.kind === SyntaxKind.ClassDeclaration) {
-            const classDecl = current.parent as any;
-            return checker.getSymbolAtLocation(classDecl.name);
-        }
-        current = current.parent;
-    }
-    return null;
-}
-
-function getImplementingSymbol(clause: HeritageClause, checker: TypeChecker): any {
-    // Walk up the AST to find the class declaration that contains this heritage clause
-    let current: Node | undefined = clause;
-    while (current && current.parent) {
-        if (current.parent.kind === SyntaxKind.ClassDeclaration) {
-            const classDecl = current.parent as any;
-            return checker.getSymbolAtLocation(classDecl.name);
-        }
-        current = current.parent;
-    }
-    return null;
-}
-
-function formatKind(kind: any): string {
-    return `Kind<${kind.parameterKinds?.map(() => 'Type').join(', ') || ''}>`;
 } 
