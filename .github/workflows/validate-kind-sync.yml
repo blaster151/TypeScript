@@ -1,0 +1,75 @@
+name: Validate KindScript Synchronization
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/compiler/kindMetadataCentral.ts'
+      - 'src/lib/tsplus.d.ts'
+      - 'scripts/generateKindDTs.js'
+      - 'bin/tsplusserver.js'
+      - 'scripts/validateKindSync.js'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'src/compiler/kindMetadataCentral.ts'
+      - 'src/lib/tsplus.d.ts'
+      - 'scripts/generateKindDTs.js'
+      - 'bin/tsplusserver.js'
+      - 'scripts/validateKindSync.js'
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  validate-kind-sync:
+    name: Validate KindScript Synchronization
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build TypeScript compiler
+        run: npm run build:compiler
+        
+      - name: Make validation script executable
+        run: chmod +x scripts/validateKindSync.js
+        
+      - name: Run KindScript synchronization validation
+        run: node scripts/validateKindSync.js
+        
+      - name: Check for .d.ts changes
+        id: check-dts-changes
+        run: |
+          if [ -n "$(git status --porcelain src/lib/tsplus.d.ts)" ]; then
+            echo "::error::Generated .d.ts file is out of sync with metadata"
+            echo "changes=true" >> $GITHUB_OUTPUT
+            git diff src/lib/tsplus.d.ts
+          else
+            echo "changes=false" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Fail if .d.ts is out of sync
+        if: steps.check-dts-changes.outputs.changes == 'true'
+        run: |
+          echo "::error::Generated .d.ts file is out of sync with centralized metadata"
+          echo "Please run 'npm run generate:kind-dts' and commit the changes"
+          exit 1
+          
+      - name: Upload validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-logs
+          path: |
+            *.log
+            validation-*.txt
+          retention-days: 7 

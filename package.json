@@ -104,7 +104,11 @@
         "setup-hooks": "node scripts/link-hooks.mjs",
         "generate:kind-dts": "node scripts/generateKindDTs.js",
         "build:with-kind": "npm run generate:kind-dts && npm run build",
-        "postinstall": "node scripts/postinstall.js"
+        "validate:kind-sync": "node scripts/validateKindSync.js",
+        "validate:kind-dts": "npm run generate:kind-dts && git diff --exit-code -- src/lib/ts.plus.d.ts",
+        "postinstall": "node scripts/postinstall.js",
+        "validate:delimiters": "node scripts/validateKindScriptDelimiters.js",
+        "validate:delimiters:report": "node scripts/validateKindScriptDelimiters.js --report"
     },
     "browser": {
         "fs": false,

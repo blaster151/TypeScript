@@ -1,3 +1,4 @@
+// KINDSCRIPT: START - CHECKER_INTEGRATION - KindScript checker integration imports
 import {
     TypeChecker,
     Type,
@@ -9,6 +10,8 @@ import {
     SourceFile,
     Node,
     SyntaxKind,
+    ConditionalTypeNode,
+    InferTypeNode,
 } from "./types.js";
 import { 
     isKindSensitiveContext,
@@ -28,10 +31,18 @@ import { createKindDiagnosticReporter } from "./kindDiagnosticReporter.js";
 import { KindDiagnosticCodes } from "./kindDiagnostics.js";
 import { globalKindConstraintMap } from "./kindConstraintPropagation.js";
 import { applyKindDiagnosticAlias } from "./kindDiagnosticAlias.js";
+import { 
+    integrateKindValidationInCheckConditionalType,
+    integrateKindValidationInCheckInferType,
+    integrateKindValidationInCheckMappedTypeEnhanced,
+    integrateKindValidationInCheckHeritageClausesEnhanced
+} from "./kindConditionalTypeIntegration.js";
+// KINDSCRIPT: END - CHECKER_INTEGRATION
 
 /**
  * Integration point 1: checkTypeReference() - Call kind compatibility validation
  */
+// KINDSCRIPT: START - CHECKER_INTEGRATION - integrateKindValidationInCheckTypeReference
 export function integrateKindValidationInCheckTypeReference(
     node: TypeReferenceNode,
     checker: TypeChecker,
@@ -123,10 +134,12 @@ export function integrateKindValidationInCheckTypeReference(
     
     return { hasKindValidation: false, diagnostics };
 }
+// KINDSCRIPT: END - CHECKER_INTEGRATION
 
 /**
- * Integration point 2: checkTypeArgumentConstraints() - Validate kinds on generic type arguments
+ * Integration point 2: checkTypeArgumentConstraints() - Validate kind constraints
  */
+// KINDSCRIPT: START - CHECKER_INTEGRATION - integrateKindValidationInCheckTypeArgumentConstraints
 export function integrateKindValidationInCheckTypeArgumentConstraints(
     typeArguments: readonly Type[],
     typeParameters: readonly TypeParameterDeclaration[],
@@ -136,51 +149,49 @@ export function integrateKindValidationInCheckTypeArgumentConstraints(
     const violations: any[] = [];
     const diagnostics: any[] = [];
     
-    // For each type argument, check if its type parameter constraint is a kind
-    for (let i = 0; i < typeArguments.length && i < typeParameters.length; i++) {
-        const typeArg = typeArguments[i];
+    // Check if any type parameters have kind constraints
+    for (let i = 0; i < typeParameters.length; i++) {
         const typeParam = typeParameters[i];
+        const typeArg = typeArguments[i];
         
-        // Check if the type parameter has a kind constraint
-        const constraint = globalKindConstraintMap.getConstraint(typeParam.name.escapedText);
-        if (constraint) {
-            // Get the actual kind of the type argument
-            const actualKind = retrieveKindMetadata(typeArg.symbol, checker, false);
-            if (actualKind && actualKind.isValid) {
-                // Create expected kind from constraint
-                const expectedKind = {
-                    arity: constraint.arity,
-                    parameterKinds: constraint.parameterKinds || [],
-                    symbol: typeArg.symbol,
-                    retrievedFrom: "constraint",
-                    isValid: true
-                };
-                
-                // Enhanced kind compatibility check with alias support
-                const validation = compareKindsWithAliasSupport(expectedKind, actualKind, checker);
-                
-                if (!validation.isCompatible) {
-                    violations.push({
-                        typeArgument: typeArg,
-                        typeParameter: typeParam,
-                        expectedKind,
-                        actualKind,
-                        validation
-                    });
-                    
-                    const diagnostic = getKindCompatibilityDiagnostic(expectedKind, actualKind, checker);
-                    if (diagnostic.message) {
-                        diagnostics.push({
-                            file: sourceFile,
-                            start: typeParam.getStart(sourceFile),
-                            length: typeParam.getWidth(sourceFile),
-                            messageText: diagnostic.message,
-                            category: 1, // Error
-                            code: diagnostic.code,
-                            reportsUnnecessary: false,
-                            reportsDeprecated: false,
-                            source: "ts.plus"
-                        });
+        if (typeParam.constraint) {
+            const constraintType = checker.getTypeFromTypeNode(typeParam.constraint);
+            const constraintSymbol = constraintType.symbol;
+            
+            if (constraintSymbol) {
+                const constraintKind = retrieveKindMetadata(constraintSymbol, checker, false);
+                if (constraintKind && constraintKind.isValid) {
+                    // Check if the type argument satisfies the kind constraint
+                    const argSymbol = typeArg.symbol;
+                    if (argSymbol) {
+                        const argKind = retrieveKindMetadata(argSymbol, checker, false);
+                        if (argKind && argKind.isValid) {
+                            const validation = compareKindsWithAliasSupport(constraintKind, argKind, checker);
+                            if (!validation.isCompatible) {
+                                violations.push({
+                                    typeParam,
+                                    typeArg,
+                                    constraintKind,
+                                    argKind,
+                                    validation
+                                });
+                                
+                                const diagnostic = getKindCompatibilityDiagnostic(constraintKind, argKind, checker);
+                                if (diagnostic.message) {
+                                    diagnostics.push({
+                                        file: sourceFile,
+                                        start: typeParam.getStart(sourceFile),
+                                        length: typeParam.getWidth(sourceFile),
+                                        messageText: diagnostic.message,
+                                        category: 1, // Error
+                                        code: diagnostic.code,
+                                        reportsUnnecessary: false,
+                                        reportsDeprecated: false,
+                                        source: "ts.plus"
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -189,6 +200,7 @@ export function integrateKindValidationInCheckTypeArgumentConstraints(
     
     return { violations, diagnostics };
 }
+// KINDSCRIPT: END - CHECKER_INTEGRATION
 
 /**
  * Integration point 3: checkTypeAliasDeclaration() - Validate kind consistency
@@ -227,106 +239,49 @@ export function integrateKindValidationInCheckTypeAliasDeclaration(
 }
 
 /**
- * Integration point 4: checkHeritageClauses() - Validate kind inheritance
+ * Integration point 4: checkHeritageClauses() - Validate kind inheritance (Enhanced)
  */
 export function integrateKindValidationInCheckHeritageClauses(
     heritageClauses: readonly HeritageClause[],
     checker: TypeChecker,
     sourceFile: SourceFile
 ): { diagnostics: any[] } {
-    const diagnostics: any[] = [];
-    
-    for (const clause of heritageClauses) {
-        for (const typeRef of clause.types) {
-            const baseType = checker.getTypeFromTypeNode(typeRef.expression);
-            const baseSymbol = baseType.symbol;
-            
-            if (baseSymbol) {
-                const baseKind = retrieveKindMetadata(baseSymbol, checker, false);
-                if (baseKind && baseKind.isValid) {
-                    // Check if the current class/interface has kind constraints
-                    const currentSymbol = getCurrentSymbol(clause, checker);
-                    if (currentSymbol) {
-                        const currentKind = retrieveKindMetadata(currentSymbol, checker, false);
-                        if (currentKind && currentKind.isValid) {
-                            // Enhanced kind compatibility check with alias support
-                            const validation = compareKindsWithAliasSupport(baseKind, currentKind, checker);
-                            
-                            if (!validation.isCompatible) {
-                                const diagnostic = getKindCompatibilityDiagnostic(baseKind, currentKind, checker);
-                                if (diagnostic.message) {
-                                    diagnostics.push({
-                                        file: sourceFile,
-                                        start: typeRef.getStart(sourceFile),
-                                        length: typeRef.getWidth(sourceFile),
-                                        messageText: diagnostic.message,
-                                        category: 1, // Error
-                                        code: diagnostic.code,
-                                        reportsUnnecessary: false,
-                                        reportsDeprecated: false,
-                                        source: "ts.plus"
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    return { diagnostics };
+    // Use enhanced version that handles conditional types
+    return integrateKindValidationInCheckHeritageClausesEnhanced(heritageClauses, checker, sourceFile);
 }
 
 /**
- * Integration point 5: checkMappedType() - Validate kind constraints in mapped types
+ * Integration point 5: checkMappedType() - Validate kind constraints in mapped types (Enhanced)
  */
 export function integrateKindValidationInCheckMappedType(
     node: MappedTypeNode,
     checker: TypeChecker,
     sourceFile: SourceFile
 ): { diagnostics: any[] } {
-    const diagnostics: any[] = [];
-    
-    // Check if the mapped type has kind constraints
-    if (node.constraintType) {
-        const constraintType = checker.getTypeFromTypeNode(node.constraintType);
-        const constraintSymbol = constraintType.symbol;
-        
-        if (constraintSymbol) {
-            const constraintKind = retrieveKindMetadata(constraintSymbol, checker, false);
-            if (constraintKind && constraintKind.isValid) {
-                // Check if the mapped type parameter satisfies the constraint
-                const typeParamSymbol = checker.getSymbolAtLocation(node.typeParameter.name);
-                if (typeParamSymbol) {
-                    const paramKind = retrieveKindMetadata(typeParamSymbol, checker, false);
-                    if (paramKind && paramKind.isValid) {
-                        // Enhanced kind compatibility check with alias support
-                        const validation = compareKindsWithAliasSupport(constraintKind, paramKind, checker);
-                        
-                        if (!validation.isCompatible) {
-                            const diagnostic = getKindCompatibilityDiagnostic(constraintKind, paramKind, checker);
-                            if (diagnostic.message) {
-                                diagnostics.push({
-                                    file: sourceFile,
-                                    start: node.typeParameter.getStart(sourceFile),
-                                    length: node.typeParameter.getWidth(sourceFile),
-                                    messageText: diagnostic.message,
-                                    category: 1, // Error
-                                    code: diagnostic.code,
-                                    reportsUnnecessary: false,
-                                    reportsDeprecated: false,
-                                    source: "ts.plus"
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    return { diagnostics };
+    // Use enhanced version that handles conditional types
+    return integrateKindValidationInCheckMappedTypeEnhanced(node, checker, sourceFile);
+}
+
+/**
+ * Integration point 6: checkConditionalType() - Validate kind constraints in conditional types
+ */
+export function integrateKindValidationInCheckConditionalType(
+    node: ConditionalTypeNode,
+    checker: TypeChecker,
+    sourceFile: SourceFile
+): { diagnostics: any[] } {
+    return integrateKindValidationInCheckConditionalType(node, checker, sourceFile);
+}
+
+/**
+ * Integration point 7: checkInferType() - Validate kind constraints in infer positions
+ */
+export function integrateKindValidationInCheckInferType(
+    node: InferTypeNode,
+    checker: TypeChecker,
+    sourceFile: SourceFile
+): { diagnostics: any[] } {
+    return integrateKindValidationInCheckInferType(node, checker, sourceFile);
 }
 
 /**
