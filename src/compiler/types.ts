@@ -6483,6 +6483,17 @@ export interface KindType extends Type {
     parameterKinds: readonly Type[]; // Resolved parameter types for Kind<...>
 }
 
+/**
+ * Type constructor type
+ * Represents a type constructor with arity, parameter kinds, and target type
+ */
+export interface TypeConstructorType extends Type {
+    arity: number;                   // Number of type parameters
+    parameterKinds: readonly Type[]; // Kinds of the type parameters
+    targetType: Type;                // The type being constructed
+    symbol: Symbol;                  // Symbol associated with the type constructor
+}
+
 /** @internal */
 // Intrinsic types (TypeFlags.Intrinsic)
 export interface IntrinsicType extends Type {
@@ -6606,6 +6617,7 @@ export const enum ObjectFlags {
     ContainsIntersections = 1 << 24, // Union contains intersections
     /** @internal */
     IsUnknownLikeUnionComputed = 1 << 25, // IsUnknownLikeUnion flag has been computed
+    TypeConstructor = 1 << 28, // Type constructor type
     /** @internal */
     IsUnknownLikeUnion = 1 << 26, // Union of null, undefined, and empty object type
     /** @internal */

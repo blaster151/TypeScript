@@ -1140,6 +1140,8 @@ import {
 } from "./_namespaces/ts.js";
 import * as moduleSpecifiers from "./_namespaces/ts.moduleSpecifiers.js";
 import * as performance from "./_namespaces/ts.performance.js";
+import { resolveKindTypeWithCaching } from "./kindTypeCache.js";
+import { createTypeConstructorType } from "./kindTypeFactory.js";
 
 const ambientModuleSymbolRegex = /^".+"$/;
 const anon = "(anonymous)" as __String & string;
@@ -20400,8 +20402,8 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 return getTypeFromThisTypeNode(node as ThisExpression | ThisTypeNode);
             case SyntaxKind.LiteralType:
                 return getTypeFromLiteralTypeNode(node as LiteralTypeNode);
-            case SyntaxKind.TypeReference:
-                return getTypeFromTypeReference(node as TypeReferenceNode);
+                    case SyntaxKind.TypeReference:
+            return getTypeFromTypeReferenceWithKindHandling(node as TypeReferenceNode);
             case SyntaxKind.TypePredicate:
                 return (node as TypePredicateNode).assertsModifier ? voidType : booleanType;
             case SyntaxKind.ExpressionWithTypeArguments:

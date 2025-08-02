@@ -61,6 +61,7 @@ import {
     isThisInTypeQuery,
     isTransientSymbol,
     isTypeAliasDeclaration,
+    isTypeConstructorType,
     isVarAwaitUsing,
     isVarConst,
     isVarUsing,
@@ -734,6 +735,42 @@ function getSymbolDisplayPartsDocumentationAndSymbolKindWorker(
                         displayParts.push(textPart(idText(labelDecl.name)));
                         displayParts.push(punctuationPart(SyntaxKind.CloseParenToken));
                     }
+                }
+                // Handle TypeConstructorType - display formatted kind signature, arity, and parameter kinds
+                else if (isTypeConstructorType(type)) {
+                    displayParts.push(punctuationPart(SyntaxKind.ColonToken));
+                    displayParts.push(spacePart());
+                    
+                    // Display the kind signature
+                    displayParts.push(textPart("Kind<"));
+                    
+                    // Display parameter kinds
+                    for (let i = 0; i < type.parameterKinds.length; i++) {
+                        if (i > 0) {
+                            displayParts.push(punctuationPart(SyntaxKind.CommaToken));
+                            displayParts.push(spacePart());
+                        }
+                        addRange(
+                            displayParts,
+                            typeToDisplayParts(
+                                typeChecker,
+                                type.parameterKinds[i],
+                                enclosingDeclaration,
+                                TypeFormatFlags.None,
+                                maximumLength,
+                                verbosityLevel,
+                                typeWriterOut,
+                            ),
+                        );
+                    }
+                    
+                    displayParts.push(textPart(">"));
+                    
+                    // Add arity information
+                    displayParts.push(spacePart());
+                    displayParts.push(punctuationPart(SyntaxKind.OpenParenToken));
+                    displayParts.push(textPart(`arity: ${type.arity}`));
+                    displayParts.push(punctuationPart(SyntaxKind.CloseParenToken));
                 }
                 else if (
                     symbolFlags & SymbolFlags.Function ||

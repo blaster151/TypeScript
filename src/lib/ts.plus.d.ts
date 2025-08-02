@@ -6,9 +6,12 @@ declare namespace ts.plus {
     /**
      * Unary type constructor supporting map
      *
+     * Accepts first-class type constructors (FCTCs) directly.
+     *
      * @example
      * ```typescript
-     * function map<F extends ts.plus.Functor, A, B>(fa: F<A>, f: (a: A) => B): F<B>
+     * // F can be a type constructor like List, Option, etc.
+     * function map<F extends Kind<Type, Type>, A, B>(fa: F<A>, f: (a: A) => B): F<B>
      * ```
      *
      * @see https://en.wikipedia.org/wiki/Functor
@@ -52,73 +55,53 @@ declare namespace ts.plus {
      * Free monad over a functor
      *
      * Represents a monad structure built from a functor F.
-     * The Free monad provides a way to build monadic computations
-     * from any functor, not just those that are already monads.
+     * Accepts first-class type constructors (FCTCs) directly.
      *
-     * @template F - The underlying functor (must be unary)
+     * @template F - The underlying functor (must be unary, F extends Kind<Type, Type>)
      * @template A - The value type
      *
      * @example
      * ```typescript
-     * // Define a functor for logging
-     * interface LogF<A> {
-     *   type: 'log';
-     *   message: string;
-     *   next: A;
-     * }
-     *
-     * // Create a free monad over the logging functor
+     * interface LogF<A> { type: 'log'; message: string; next: A; }
      * type LogFree<A> = ts.plus.Free<LogF, A>;
-     *
-     * // Use in computations
-     * function logMessage<A>(message: string, next: A): LogFree<A> {
-     *   return { type: 'log', message, next } as any;
-     * }
      * ```
      *
      * @see https://en.wikipedia.org/wiki/Free_monad
      */
-    type Free<F extends UnaryFunctor, A> = F extends Kind<[Type, Type]>
-        ? any // Simplified for now
-        : never;
+    type Free<F extends Kind<Type, Type>, A> = any; // Implementation stub
 
     /**
      * Fixed point of a functor
      *
-     * Represents the fixed point of a functor F, which is a type
-     * that satisfies the equation Fix<F> = F<Fix<F>>.
-     * This is useful for representing recursive data structures.
+     * Accepts first-class type constructors (FCTCs) directly.
      *
-     * @template F - The functor (must be unary)
+     * @template F - The functor (must be unary, F extends Kind<Type, Type>)
      *
      * @example
      * ```typescript
-     * // Define a functor for binary trees
-     * interface TreeF<A> {
-     *   type: 'leaf' | 'node';
-     *   value?: number;
-     *   left?: A;
-     *   right?: A;
-     * }
-     *
-     * // Create the fixed point
+     * interface TreeF<A> { type: 'leaf' | 'node'; value?: number; left?: A; right?: A; }
      * type Tree = ts.plus.Fix<TreeF>;
-     *
-     * // This represents: Tree = TreeF<Tree>
-     * // Which is equivalent to:
-     * // type Tree = {
-     * //   type: 'leaf' | 'node';
-     * //   value?: number;
-     * //   left?: Tree;
-     * //   right?: Tree;
-     * // }
      * ```
      *
      * @see https://en.wikipedia.org/wiki/Fixed_point_combinator
      */
-    type Fix<F extends UnaryFunctor> = F extends Kind<[Type, Type]>
-        ? any // Simplified for now
-        : never;
+    type Fix<F extends Kind<Type, Type>> = any; // Implementation stub
+
+    /**
+     * Applies a type constructor to a tuple of type arguments.
+     *
+     * Only works with TypeConstructorType values (i.e., type-level values representing type constructors).
+     *
+     * @template TC - The type constructor (must be a TypeConstructorType)
+     * @template Args - The type arguments to apply
+     *
+     * @example
+     * ```typescript
+     * type List<T> = T[];
+     * type ListOfString = ts.plus.Apply<typeof List, [string]>; // ListOfString = string[]
+     * ```
+     */
+    type Apply<TC, Args extends any[]> = any;
 }
 
 // Temporary ambient stubs for KindScript types

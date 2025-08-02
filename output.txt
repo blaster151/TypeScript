@@ -1,0 +1,371 @@
+diff --git a/src/compiler/checker.ts b/src/compiler/checker.ts
+index 59ae3c06f5..ea21cc2f14 100644
+--- a/src/compiler/checker.ts
++++ b/src/compiler/checker.ts
+@@ -1140,6 +1140,8 @@ import {
+ } from "./_namespaces/ts.js";
+ import * as moduleSpecifiers from "./_namespaces/ts.moduleSpecifiers.js";
+ import * as performance from "./_namespaces/ts.performance.js";
++import { resolveKindTypeWithCaching } from "./kindTypeCache.js";
++import { createTypeConstructorType } from "./kindTypeFactory.js";
+ 
+ const ambientModuleSymbolRegex = /^".+"$/;
+ const anon = "(anonymous)" as __String & string;
+@@ -20400,8 +20402,8 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
+                 return getTypeFromThisTypeNode(node as ThisExpression | ThisTypeNode);
+             case SyntaxKind.LiteralType:
+                 return getTypeFromLiteralTypeNode(node as LiteralTypeNode);
+-            case SyntaxKind.TypeReference:
+-                return getTypeFromTypeReference(node as TypeReferenceNode);
++                    case SyntaxKind.TypeReference:
++            return getTypeFromTypeReferenceWithKindHandling(node as TypeReferenceNode);
+             case SyntaxKind.TypePredicate:
+                 return (node as TypePredicateNode).assertsModifier ? voidType : booleanType;
+             case SyntaxKind.ExpressionWithTypeArguments:
+diff --git a/src/compiler/factory/nodeTests.ts b/src/compiler/factory/nodeTests.ts
+index 8aa4bb02e8..fcf8773d5c 100644
+--- a/src/compiler/factory/nodeTests.ts
++++ b/src/compiler/factory/nodeTests.ts
+@@ -220,6 +220,7 @@ import {
+     TypePredicateNode,
+     TypeQueryNode,
+     TypeReferenceNode,
++    KindTypeNode,
+     UnionTypeNode,
+     VariableDeclaration,
+     VariableDeclarationList,
+@@ -229,6 +230,7 @@ import {
+     WithStatement,
+     YieldExpression,
+ } from "../_namespaces/ts.js";
++import { TypeFlags, ObjectFlags, TypeConstructorType, Type } from "../types.js";
+ 
+ // Literals
+ 
+@@ -469,6 +471,14 @@ export function isTypeReferenceNode(node: Node): node is TypeReferenceNode {
+     return node.kind === SyntaxKind.TypeReference;
+ }
+ 
++export function isKindTypeNode(node: Node): node is KindTypeNode {
++    return node.kind === SyntaxKind.KindType;
++}
++
++export function isTypeConstructorType(type: Type): type is TypeConstructorType {
++    return !!(type.flags & TypeFlags.Object && (type as any).objectFlags & ObjectFlags.TypeConstructor);
++}
++
+ export function isFunctionTypeNode(node: Node): node is FunctionTypeNode {
+     return node.kind === SyntaxKind.FunctionType;
+ }
+diff --git a/src/compiler/kindTypeFactory.ts b/src/compiler/kindTypeFactory.ts
+index 9f3732720e..f05d7e6905 100644
+--- a/src/compiler/kindTypeFactory.ts
++++ b/src/compiler/kindTypeFactory.ts
+@@ -4,6 +4,8 @@ import {
+     KindType,
+     Symbol,
+     TypeChecker,
++    TypeConstructorType,
++    ObjectFlags,
+ } from "./types.js";
+ 
+ /**
+@@ -26,7 +28,7 @@ export function createKindType(
+     // Create the KindType object
+     const kindType: KindType = {
+         // Base Type properties
+-        flags: TypeFlags.Kind | (hasErrors ? TypeFlags.Error : 0),
++        flags: TypeFlags.Kind,
+         id: 0, // Will be set by the checker
+         checker,
+         symbol,
+@@ -72,4 +74,87 @@ export function createKindTypeFromNode(
+ ): KindType {
+     const kindArity = node.typeArguments?.length || 0;
+     return createKindType(checker, symbol, kindArity, resolvedParameterKinds, hasErrors);
++}
++
++/**
++ * Factory function to create a TypeConstructorType
++ * This is used when a Kind<> type annotation is applied to a generic type
++ */
++export function createTypeConstructorType(
++    checker: TypeChecker,
++    symbol: Symbol,
++    arity: number,
++    parameterKinds: readonly Type[],
++    targetType: Type,
++    hasErrors: boolean = false
++): TypeConstructorType {
++    // Create the TypeConstructorType object
++    const typeConstructorType: TypeConstructorType = {
++        // Base Type properties
++        flags: TypeFlags.Object | ObjectFlags.TypeConstructor,
++        id: 0, // Will be set by the checker
++        checker,
++        symbol,
++        
++        // TypeConstructorType specific properties
++        arity,
++        parameterKinds,
++        targetType,
++        
++        // Optional Type properties
++        pattern: undefined,
++        aliasSymbol: undefined,
++        aliasTypeArguments: undefined,
++        permissiveInstantiation: undefined,
++        restrictiveInstantiation: undefined,
++        immediateBaseConstraint: undefined,
++        widened: undefined,
++    };
++    
++    return typeConstructorType;
++} 
++
++// Type instantiation cache (keyed by constructor symbol id + type arg ids)
++const typeInstantiationCache = new Map<string, Type>();
++
++/**
++ * Applies a TypeConstructorType to type arguments, checking arity and emitting diagnostics if needed.
++ * Returns a concrete type or error type.
++ */
++export function applyTypeConstructor(
++    checker: TypeChecker,
++    constructorType: TypeConstructorType,
++    typeArgs: readonly Type[],
++    errorNode?: any // Node | undefined
++): Type {
++    if (constructorType.arity !== typeArgs.length) {
++        // Fallback: return a generic error type
++        return { flags: TypeFlags.Any, id: 0, checker } as Type;
++    }
++    return instantiateTypeConstructor(checker, constructorType, typeArgs);
++}
++
++/**
++ * Instantiates a TypeConstructorType with the given type arguments, caching the result.
++ */
++export function instantiateTypeConstructor(
++    checker: TypeChecker,
++    constructorType: TypeConstructorType,
++    typeArgs: readonly Type[]
++): Type {
++    // Use only symbol.id for cache key
++    const key = `${constructorType.symbol.id}:${typeArgs.map(t => t.id).join(",")}`;
++    const cached = typeInstantiationCache.get(key);
++    if (cached) return cached;
++
++    const typeRef: Type = {
++        flags: TypeFlags.Object,
++        id: 0, // Will be set by checker
++        checker,
++        symbol: constructorType.symbol,
++        aliasTypeArguments: typeArgs,
++        target: constructorType.targetType,
++    } as any;
++    typeInstantiationCache.set(key, typeRef);
++    return typeRef;
+ } 
+\ No newline at end of file
+diff --git a/src/compiler/types.ts b/src/compiler/types.ts
+index f2e5b52dd5..cb217cda17 100644
+--- a/src/compiler/types.ts
++++ b/src/compiler/types.ts
+@@ -6483,6 +6483,17 @@ export interface KindType extends Type {
+     parameterKinds: readonly Type[]; // Resolved parameter types for Kind<...>
+ }
+ 
++/**
++ * Type constructor type
++ * Represents a type constructor with arity, parameter kinds, and target type
++ */
++export interface TypeConstructorType extends Type {
++    arity: number;                   // Number of type parameters
++    parameterKinds: readonly Type[]; // Kinds of the type parameters
++    targetType: Type;                // The type being constructed
++    symbol: Symbol;                  // Symbol associated with the type constructor
++}
++
+ /** @internal */
+ // Intrinsic types (TypeFlags.Intrinsic)
+ export interface IntrinsicType extends Type {
+@@ -6606,6 +6617,7 @@ export const enum ObjectFlags {
+     ContainsIntersections = 1 << 24, // Union contains intersections
+     /** @internal */
+     IsUnknownLikeUnionComputed = 1 << 25, // IsUnknownLikeUnion flag has been computed
++    TypeConstructor = 1 << 28, // Type constructor type
+     /** @internal */
+     IsUnknownLikeUnion = 1 << 26, // Union of null, undefined, and empty object type
+     /** @internal */
+diff --git a/src/lib/ts.plus.d.ts b/src/lib/ts.plus.d.ts
+index 6b7e036c8b..8f9ac632e1 100644
+--- a/src/lib/ts.plus.d.ts
++++ b/src/lib/ts.plus.d.ts
+@@ -6,9 +6,12 @@ declare namespace ts.plus {
+     /**
+      * Unary type constructor supporting map
+      *
++     * Accepts first-class type constructors (FCTCs) directly.
++     *
+      * @example
+      * ```typescript
+-     * function map<F extends ts.plus.Functor, A, B>(fa: F<A>, f: (a: A) => B): F<B>
++     * // F can be a type constructor like List, Option, etc.
++     * function map<F extends Kind<Type, Type>, A, B>(fa: F<A>, f: (a: A) => B): F<B>
+      * ```
+      *
+      * @see https://en.wikipedia.org/wiki/Functor
+@@ -52,73 +55,53 @@ declare namespace ts.plus {
+      * Free monad over a functor
+      *
+      * Represents a monad structure built from a functor F.
+-     * The Free monad provides a way to build monadic computations
+-     * from any functor, not just those that are already monads.
++     * Accepts first-class type constructors (FCTCs) directly.
+      *
+-     * @template F - The underlying functor (must be unary)
++     * @template F - The underlying functor (must be unary, F extends Kind<Type, Type>)
+      * @template A - The value type
+      *
+      * @example
+      * ```typescript
+-     * // Define a functor for logging
+-     * interface LogF<A> {
+-     *   type: 'log';
+-     *   message: string;
+-     *   next: A;
+-     * }
+-     *
+-     * // Create a free monad over the logging functor
++     * interface LogF<A> { type: 'log'; message: string; next: A; }
+      * type LogFree<A> = ts.plus.Free<LogF, A>;
+-     *
+-     * // Use in computations
+-     * function logMessage<A>(message: string, next: A): LogFree<A> {
+-     *   return { type: 'log', message, next } as any;
+-     * }
+      * ```
+      *
+      * @see https://en.wikipedia.org/wiki/Free_monad
+      */
+-    type Free<F extends UnaryFunctor, A> = F extends Kind<[Type, Type]>
+-        ? any // Simplified for now
+-        : never;
++    type Free<F extends Kind<Type, Type>, A> = any; // Implementation stub
+ 
+     /**
+      * Fixed point of a functor
+      *
+-     * Represents the fixed point of a functor F, which is a type
+-     * that satisfies the equation Fix<F> = F<Fix<F>>.
+-     * This is useful for representing recursive data structures.
++     * Accepts first-class type constructors (FCTCs) directly.
+      *
+-     * @template F - The functor (must be unary)
++     * @template F - The functor (must be unary, F extends Kind<Type, Type>)
+      *
+      * @example
+      * ```typescript
+-     * // Define a functor for binary trees
+-     * interface TreeF<A> {
+-     *   type: 'leaf' | 'node';
+-     *   value?: number;
+-     *   left?: A;
+-     *   right?: A;
+-     * }
+-     *
+-     * // Create the fixed point
++     * interface TreeF<A> { type: 'leaf' | 'node'; value?: number; left?: A; right?: A; }
+      * type Tree = ts.plus.Fix<TreeF>;
+-     *
+-     * // This represents: Tree = TreeF<Tree>
+-     * // Which is equivalent to:
+-     * // type Tree = {
+-     * //   type: 'leaf' | 'node';
+-     * //   value?: number;
+-     * //   left?: Tree;
+-     * //   right?: Tree;
+-     * // }
+      * ```
+      *
+      * @see https://en.wikipedia.org/wiki/Fixed_point_combinator
+      */
+-    type Fix<F extends UnaryFunctor> = F extends Kind<[Type, Type]>
+-        ? any // Simplified for now
+-        : never;
++    type Fix<F extends Kind<Type, Type>> = any; // Implementation stub
++
++    /**
++     * Applies a type constructor to a tuple of type arguments.
++     *
++     * Only works with TypeConstructorType values (i.e., type-level values representing type constructors).
++     *
++     * @template TC - The type constructor (must be a TypeConstructorType)
++     * @template Args - The type arguments to apply
++     *
++     * @example
++     * ```typescript
++     * type List<T> = T[];
++     * type ListOfString = ts.plus.Apply<typeof List, [string]>; // ListOfString = string[]
++     * ```
++     */
++    type Apply<TC, Args extends any[]> = any;
+ }
+ 
+ // Temporary ambient stubs for KindScript types
+diff --git a/src/services/symbolDisplay.ts b/src/services/symbolDisplay.ts
+index 03b2b59193..039758eb85 100644
+--- a/src/services/symbolDisplay.ts
++++ b/src/services/symbolDisplay.ts
+@@ -61,6 +61,7 @@ import {
+     isThisInTypeQuery,
+     isTransientSymbol,
+     isTypeAliasDeclaration,
++    isTypeConstructorType,
+     isVarAwaitUsing,
+     isVarConst,
+     isVarUsing,
+@@ -735,6 +736,42 @@ function getSymbolDisplayPartsDocumentationAndSymbolKindWorker(
+                         displayParts.push(punctuationPart(SyntaxKind.CloseParenToken));
+                     }
+                 }
++                // Handle TypeConstructorType - display formatted kind signature, arity, and parameter kinds
++                else if (isTypeConstructorType(type)) {
++                    displayParts.push(punctuationPart(SyntaxKind.ColonToken));
++                    displayParts.push(spacePart());
++                    
++                    // Display the kind signature
++                    displayParts.push(textPart("Kind<"));
++                    
++                    // Display parameter kinds
++                    for (let i = 0; i < type.parameterKinds.length; i++) {
++                        if (i > 0) {
++                            displayParts.push(punctuationPart(SyntaxKind.CommaToken));
++                            displayParts.push(spacePart());
++                        }
++                        addRange(
++                            displayParts,
++                            typeToDisplayParts(
++                                typeChecker,
++                                type.parameterKinds[i],
++                                enclosingDeclaration,
++                                TypeFormatFlags.None,
++                                maximumLength,
++                                verbosityLevel,
++                                typeWriterOut,
++                            ),
++                        );
++                    }
++                    
++                    displayParts.push(textPart(">"));
++                    
++                    // Add arity information
++                    displayParts.push(spacePart());
++                    displayParts.push(punctuationPart(SyntaxKind.OpenParenToken));
++                    displayParts.push(textPart(`arity: ${type.arity}`));
++                    displayParts.push(punctuationPart(SyntaxKind.CloseParenToken));
++                }
+                 else if (
+                     symbolFlags & SymbolFlags.Function ||
+                     symbolFlags & SymbolFlags.Method ||

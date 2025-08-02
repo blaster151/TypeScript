@@ -220,6 +220,7 @@ import {
     TypePredicateNode,
     TypeQueryNode,
     TypeReferenceNode,
+    KindTypeNode,
     UnionTypeNode,
     VariableDeclaration,
     VariableDeclarationList,
@@ -229,6 +230,7 @@ import {
     WithStatement,
     YieldExpression,
 } from "../_namespaces/ts.js";
+import { TypeFlags, ObjectFlags, TypeConstructorType, Type } from "../types.js";
 
 // Literals
 
@@ -467,6 +469,14 @@ export function isTypePredicateNode(node: Node): node is TypePredicateNode {
 
 export function isTypeReferenceNode(node: Node): node is TypeReferenceNode {
     return node.kind === SyntaxKind.TypeReference;
+}
+
+export function isKindTypeNode(node: Node): node is KindTypeNode {
+    return node.kind === SyntaxKind.KindType;
+}
+
+export function isTypeConstructorType(type: Type): type is TypeConstructorType {
+    return !!(type.flags & TypeFlags.Object && (type as any).objectFlags & ObjectFlags.TypeConstructor);
 }
 
 export function isFunctionTypeNode(node: Node): node is FunctionTypeNode {
