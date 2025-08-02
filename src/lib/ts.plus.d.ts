@@ -1,6 +1,6 @@
 // Auto-generated from centralized kind metadata
 // Do not edit manually - edit src/compiler/kindMetadataCentral.ts instead
-// Generated on: 2025-08-02T01:04:49.990Z
+// Generated on: 2025-08-02T01:56:06.426Z
 
 // Temporary ambient stubs for Kind and Type until the type system provides them
 // These are placeholders for the type system's internal higher-kinded type machinery
