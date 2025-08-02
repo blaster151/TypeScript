@@ -111,6 +111,8 @@ import {
     VariableDeclaration,
     WriterContextOut,
 } from "./_namespaces/ts.js";
+import { isApplyType } from "../compiler/checker.js";
+import { applyTypeConstructor } from "../compiler/kindTypeFactory.js";
 
 const symbolDisplayNodeBuilderFlags = NodeBuilderFlags.OmitParameterModifiers | NodeBuilderFlags.IgnoreErrors | NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope;
 
@@ -771,6 +773,34 @@ function getSymbolDisplayPartsDocumentationAndSymbolKindWorker(
                     displayParts.push(punctuationPart(SyntaxKind.OpenParenToken));
                     displayParts.push(textPart(`arity: ${type.arity}`));
                     displayParts.push(punctuationPart(SyntaxKind.CloseParenToken));
+                }
+                else if (isApplyType(type) && type.aliasTypeArguments && isTypeConstructorType(type.aliasTypeArguments[0])) {
+                    const F = type.aliasTypeArguments[0];
+                    const args = type.aliasTypeArguments.slice(1);
+                    // Evaluate the application
+                    const evaluated = applyTypeConstructor(typeChecker, F, args);
+                    // Display: Apply<F, [Args]>: <evaluatedType>
+                    displayParts.push(textPart("Apply<"));
+                    addRange(displayParts, typeToDisplayParts(typeChecker, F, enclosingDeclaration));
+                    displayParts.push(textPart(", ["));
+                    for (let i = 0; i < args.length; i++) {
+                        if (i > 0) displayParts.push(textPart(", "));
+                        addRange(displayParts, typeToDisplayParts(typeChecker, args[i], enclosingDeclaration));
+                    }
+                    displayParts.push(textPart("]>"));
+                    displayParts.push(punctuationPart(SyntaxKind.ColonToken));
+                    displayParts.push(spacePart());
+                    addRange(displayParts, typeToDisplayParts(typeChecker, evaluated, enclosingDeclaration));
+                    // Newline and kind signature
+                    displayParts.push(lineBreakPart());
+                    displayParts.push(textPart("Kind signature: Kind<"));
+                    for (let i = 0; i < F.parameterKinds.length; i++) {
+                        if (i > 0) displayParts.push(textPart(", "));
+                        addRange(displayParts, typeToDisplayParts(typeChecker, F.parameterKinds[i], enclosingDeclaration));
+                    }
+                    displayParts.push(textPart("> (arity: "));
+                    displayParts.push(textPart(String(F.arity)));
+                    displayParts.push(textPart(")"));
                 }
                 else if (
                     symbolFlags & SymbolFlags.Function ||

@@ -1141,7 +1141,17 @@ import {
 import * as moduleSpecifiers from "./_namespaces/ts.moduleSpecifiers.js";
 import * as performance from "./_namespaces/ts.performance.js";
 import { resolveKindTypeWithCaching } from "./kindTypeCache.js";
-import { createTypeConstructorType } from "./kindTypeFactory.js";
+import { createTypeConstructorType, applyTypeConstructor } from "./kindTypeFactory.js";
+import {
+    compareTypeConstructorWithKindConstraint,
+    formatKindConstraint,
+    isKindTypeConstraint,
+    storeKindConstraintMetadata,
+    getKindConstraintMetadata,
+    areTypeConstructorsAssignable,
+    validateInferenceCandidate
+} from "./kindConstraintChecker.js";
+import { isTypeConstructorType } from "./factory/nodeTests.js";
 
 const ambientModuleSymbolRegex = /^".+"$/;
 const anon = "(anonymous)" as __String & string;
@@ -20992,6 +21002,15 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         if (flags & TypeFlags.TypeParameter) {
             return getMappedType(type, mapper);
         }
+        
+        // Check for Apply types and resolve them during instantiation
+        if (isApplyType(type)) {
+            const resolvedApplyType = resolveApplyTypeDuringInstantiation(type, mapper);
+            if (resolvedApplyType) {
+                return resolvedApplyType;
+            }
+        }
+        
         if (flags & TypeFlags.Object) {
             const objectFlags = (type as ObjectType).objectFlags;
             if (objectFlags & (ObjectFlags.Reference | ObjectFlags.Anonymous | ObjectFlags.Mapped)) {
@@ -21191,6 +21210,15 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     // TYPE CHECKING
 
     function isTypeIdenticalTo(source: Type, target: Type): boolean {
+    // Resolve Apply types before comparison
+    const resolvedSource = resolveApplyType(source);
+    const resolvedTarget = resolveApplyType(target);
+    
+    // Continue with the original logic using resolved types
+    return isTypeIdenticalToWorker(resolvedSource, resolvedTarget);
+}
+
+function isTypeIdenticalToWorker(source: Type, target: Type): boolean {
         return isTypeRelatedTo(source, target, identityRelation);
     }
 
@@ -21215,6 +21243,15 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     }
 
     function isTypeAssignableTo(source: Type, target: Type): boolean {
+    // Resolve Apply types before comparison
+    const resolvedSource = resolveApplyType(source);
+    const resolvedTarget = resolveApplyType(target);
+    
+    // Continue with the original logic using resolved types
+    return isTypeAssignableToWorker(resolvedSource, resolvedTarget);
+}
+
+function isTypeAssignableToWorker(source: Type, target: Type): boolean {
         return isTypeRelatedTo(source, target, assignableRelation);
     }
 
@@ -26818,13 +26855,25 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                             // i.e. only if we have not descended into a bivariant position.
                             if (contravariant && !bivariant) {
                                 if (!contains(inference.contraCandidates, candidate)) {
-                                    inference.contraCandidates = append(inference.contraCandidates, candidate);
-                                    clearCachedInferences(inferences);
+                                    // Validate candidate against kind constraints if applicable
+                                    const validation = validateInferenceCandidate(candidate, inference.typeParameter, this);
+                                    
+                                    if (validation.isValid) {
+                                        inference.contraCandidates = append(inference.contraCandidates, candidate);
+                                        clearCachedInferences(inferences);
+                                    }
+                                    // If validation.shouldRemove is true, we don't add the candidate
                                 }
                             }
                             else if (!contains(inference.candidates, candidate)) {
-                                inference.candidates = append(inference.candidates, candidate);
-                                clearCachedInferences(inferences);
+                                // Validate candidate against kind constraints if applicable
+                                const validation = validateInferenceCandidate(candidate, inference.typeParameter, this);
+                                
+                                if (validation.isValid) {
+                                    inference.candidates = append(inference.candidates, candidate);
+                                    clearCachedInferences(inferences);
+                                }
+                                // If validation.shouldRemove is true, we don't add the candidate
                             }
                         }
                         if (!(priority & InferencePriority.ReturnType) && target.flags & TypeFlags.TypeParameter && inference.topLevel && !isTypeParameterAtTopLevel(originalTarget, target as TypeParameter)) {
@@ -53787,9 +53836,318 @@ class SymbolTrackerImpl implements SymbolTracker {
     }
 
     /**
-     * Kind validation integration for checkTypeArgumentConstraints
-     */
-    function integrateKindValidationInCheckTypeArgumentConstraints(node: TypeReferenceNode | ExpressionWithTypeArguments | NodeWithTypeArguments, typeParameters: readonly TypeParameter[]): void {
+ * Helper function to detect if a type is an Apply type that needs resolution
+ */
+export function isApplyType(type: Type): boolean {
+    // Check if this is a type with aliasSymbol that points to the Apply type alias
+    return !!(type.aliasSymbol && 
+              type.aliasSymbol.escapedName === "Apply" && 
+              type.aliasSymbol.parent?.escapedName === "ts.plus" &&
+              type.aliasTypeArguments &&
+              type.aliasTypeArguments.length >= 1);
+}
+
+/**
+ * Check if a type argument satisfies a KindType constraint
+ */
+function checkKindTypeConstraint(
+    typeArg: Type,
+    kindConstraint: KindType,
+    node: Node,
+    checker: TypeChecker
+): boolean {
+    // Check if the type argument is a TypeConstructorType
+    if (isTypeConstructorType(typeArg)) {
+        // Compare the kind of the TypeConstructorType with the KindType constraint
+        const kindComparison = compareTypeConstructorWithKindConstraint(typeArg, kindConstraint, checker);
+        if (!kindComparison.isCompatible) {
+            // Emit kind mismatch error
+            const expectedKindStr = formatKindConstraint(kindConstraint);
+            const actualKindStr = formatKindConstraint({
+                kindArity: typeArg.arity,
+                parameterKinds: typeArg.parameterKinds,
+                flags: TypeFlags.Kind,
+                id: 0,
+                checker,
+                symbol: typeArg.symbol
+            } as KindType);
+            
+            error(node, 
+                  Diagnostics.Type_constructor_kind_mismatch_Colon_0, 
+                  `expected ${expectedKindStr}, got ${actualKindStr}`);
+            return false;
+        }
+        return true;
+    } else {
+        // Type argument is not a TypeConstructorType but constraint expects one
+        const expectedKindStr = formatKindConstraint(kindConstraint);
+        error(node, 
+              Diagnostics.Expected_a_type_constructor_matching_constraint_0, 
+              expectedKindStr);
+        return false;
+    }
+}
+
+/**
+ * Check assignability between TypeConstructorTypes based on their kinds
+ */
+function checkTypeConstructorAssignability(
+    source: TypeConstructorType,
+    target: TypeConstructorType,
+    node: Node,
+    checker: TypeChecker
+): boolean {
+    const assignabilityResult = areTypeConstructorsAssignable(source, target, checker);
+    
+    if (!assignabilityResult.isAssignable) {
+        // Emit error for kind mismatch
+        error(node, 
+              Diagnostics.Type_constructor_kind_mismatch_Colon_0, 
+              assignabilityResult.errors.join(", "));
+    }
+    
+    return assignabilityResult.isAssignable;
+}
+
+/**
+ * Resolve Apply types during instantiation by applying TypeConstructorType arguments
+ */
+function resolveApplyTypeDuringInstantiation(
+    type: Type,
+    mapper: TypeMapper
+): Type | undefined {
+    // Check if this is an Apply type
+    if (!isApplyType(type) || !type.aliasTypeArguments || type.aliasTypeArguments.length < 1) {
+        return undefined;
+    }
+    
+    // Get the first type argument (the TypeConstructorType)
+    const firstTypeArg = type.aliasTypeArguments[0];
+    
+    // Instantiate the first type argument in case it contains type variables
+    const instantiatedFirstArg = instantiateType(firstTypeArg, mapper);
+    
+    // Check if the instantiated first argument is a TypeConstructorType
+    if (!isTypeConstructorType(instantiatedFirstArg)) {
+        return undefined;
+    }
+    
+    // Get the remaining type arguments and instantiate them
+    const remainingArgs = type.aliasTypeArguments.slice(1);
+    const instantiatedRemainingArgs = instantiateTypes(remainingArgs, mapper);
+    
+    // Apply the TypeConstructorType to the remaining arguments
+    const result = applyTypeConstructor(this, instantiatedFirstArg, instantiatedRemainingArgs);
+    
+    return result;
+}
+
+/**
+ * Resolve Apply types during instantiation by applying TypeConstructorType arguments
+ */
+function resolveApplyTypeDuringInstantiation(
+    type: Type,
+    mapper: TypeMapper
+): Type | undefined {
+    // Check if this is an Apply type
+    if (!isApplyType(type) || !type.aliasTypeArguments || type.aliasTypeArguments.length < 1) {
+        return undefined;
+    }
+    
+    // Get the first type argument (the TypeConstructorType)
+    const firstTypeArg = type.aliasTypeArguments[0];
+    
+    // Instantiate the first type argument in case it contains type variables
+    const instantiatedFirstArg = instantiateType(firstTypeArg, mapper);
+    
+    // Check if the instantiated first argument is a TypeConstructorType
+    if (!isTypeConstructorType(instantiatedFirstArg)) {
+        return undefined;
+    }
+    
+    // Get the remaining type arguments and instantiate them
+    const remainingArgs = type.aliasTypeArguments.slice(1);
+    const instantiatedRemainingArgs = instantiateTypes(remainingArgs, mapper);
+    
+    // Apply the TypeConstructorType to the remaining arguments
+    const result = applyTypeConstructor(this, instantiatedFirstArg, instantiatedRemainingArgs);
+    
+    return result;
+}
+
+/**
+ * Extend inference to handle TypeConstructorType candidates with KindType constraints
+ */
+function extendInferenceForKindConstraints(
+    inference: InferenceInfo,
+    candidate: Type,
+    constraint: Type
+): void {
+    // Check if the constraint is a KindType and the candidate is a TypeConstructorType
+    if (isKindTypeConstraint(constraint) && isTypeConstructorType(candidate)) {
+        const kindConstraint = constraint as KindType;
+        
+        // Compare the kind of the TypeConstructorType with the KindType constraint
+        const kindComparison = compareTypeConstructorWithKindConstraint(candidate, kindConstraint, this);
+        
+        if (kindComparison.isCompatible) {
+            // The kinds match, so this is a valid candidate
+            // Store the kind metadata in the type parameter's constraint metadata
+            storeKindConstraintMetadata(inference.typeParameter, kindConstraint, this);
+            
+            // The candidate is already added to inference.candidates by the normal flow
+            // We just need to ensure the kind metadata is preserved
+        } else {
+            // The kinds don't match, so this candidate should not be added
+            // Remove it from candidates if it was already added
+            if (inference.candidates) {
+                const index = inference.candidates.indexOf(candidate);
+                if (index >= 0) {
+                    inference.candidates.splice(index, 1);
+                }
+            }
+        }
+    }
+}
+
+
+
+/**
+ * Extended checkTypeArgumentConstraints that handles KindType constraints
+ */
+export function checkTypeArgumentConstraintsWithKindSupport(
+    node: TypeReferenceNode | ExpressionWithTypeArguments | NodeWithTypeArguments, 
+    typeParameters: readonly TypeParameter[]
+): boolean {
+    let typeArguments: Type[] | undefined;
+    let mapper: TypeMapper | undefined;
+    let result = true;
+    
+    for (let i = 0; i < typeParameters.length; i++) {
+        const constraint = getConstraintOfTypeParameter(typeParameters[i]);
+        if (constraint) {
+            if (!typeArguments) {
+                typeArguments = getEffectiveTypeArguments(node, typeParameters);
+                mapper = createTypeMapper(typeParameters, typeArguments);
+            }
+
+            // Check if this is a KindType constraint
+            if (isKindTypeConstraint(constraint)) {
+                const kindConstraint = constraint as KindType;
+                const typeArg = typeArguments[i];
+                
+                // Store the kind constraint metadata for later use
+                storeKindConstraintMetadata(typeParameters[i], kindConstraint, this);
+                
+                // Check if the type argument is a TypeConstructorType
+                if (isTypeConstructorType(typeArg)) {
+                    // Compare the kind of the TypeConstructorType with the KindType constraint
+                    const kindComparison = compareTypeConstructorWithKindConstraint(typeArg, kindConstraint, this);
+                    if (!kindComparison.isCompatible) {
+                        // Emit kind constraint violation error
+                        error(node.typeArguments?.[i] || node, Diagnostics.Type_argument_0_does_not_satisfy_kind_constraint_1, 
+                              typeArg.symbol?.escapedName || "unknown", 
+                              formatKindConstraint(kindConstraint));
+                        result = false;
+                    }
+                } else {
+                    // Type argument is not a TypeConstructorType but constraint expects one
+                    error(node.typeArguments?.[i] || node, Diagnostics.Type_argument_0_must_be_a_type_constructor_to_satisfy_kind_constraint_1,
+                          typeArg.symbol?.escapedName || "unknown",
+                          formatKindConstraint(kindConstraint));
+                    result = false;
+                }
+            } else {
+                // Original constraint checking logic for non-KindType constraints
+                const mappedConstraint = mapper ? instantiateType(mapper, constraint) : constraint;
+                if (!isTypeAssignableTo(typeArguments[i], mappedConstraint)) {
+                    error(node.typeArguments?.[i] || node, Diagnostics.Type_argument_0_does_not_satisfy_the_constraint_1, 
+                          typeArguments[i], mappedConstraint);
+                    result = false;
+                }
+            }
+        }
+    }
+    return result;
+}
+
+/**
+ * Helper function to resolve an Apply type to its concrete type
+ */
+function resolveApplyType(type: Type): Type {
+    if (!isApplyType(type)) {
+        return type;
+    }
+    
+    // Get the first type argument (the type constructor)
+    const firstTypeArg = type.aliasTypeArguments![0];
+    
+    // Check if the first argument is a TypeConstructorType
+    if (isTypeConstructorType(firstTypeArg)) {
+        // Get the rest of the type arguments (the args to apply)
+        const restTypeArgs = type.aliasTypeArguments!.slice(1);
+        
+        // Apply the type constructor
+        return applyTypeConstructor(this, firstTypeArg, restTypeArgs);
+    }
+    
+    // If not a TypeConstructorType, return the original type
+    return type;
+}
+
+/**
+ * Handles TypeReference nodes with special logic for Kind<> syntax and Apply type alias
+ */
+function getTypeFromTypeReferenceWithKindHandling(node: TypeReferenceNode | ExpressionWithTypeArguments): Type {
+    // Check if this is the Apply type alias from stdlib
+            const targetSymbol = getNodeLinks(node).resolvedSymbol;
+            if (targetSymbol && targetSymbol.escapedName === "Apply" && targetSymbol.parent?.escapedName === "ts.plus") {
+        // This is ts.plus.Apply<TC, Args>
+        const typeArguments = node.typeArguments;
+        if (typeArguments && typeArguments.length >= 1) {
+            // Get the first type argument (the type constructor)
+            const firstTypeArg = getTypeFromTypeNode(typeArguments[0]);
+            
+            // Check if the first argument is a TypeConstructorType
+            if (isTypeConstructorType(firstTypeArg)) {
+                // Get the rest of the type arguments (the args to apply)
+                const restTypeArgs = typeArguments.slice(1);
+                const appliedArgs: Type[] = [];
+                
+                // Resolve the type arguments
+                for (const typeArg of restTypeArgs) {
+                    const resolvedType = getTypeFromTypeNode(typeArg);
+                    appliedArgs.push(resolvedType);
+                }
+                
+                // Check for arity mismatch
+                if (firstTypeArg.arity !== appliedArgs.length) {
+                    error(typeArguments[0], Diagnostics.Type_constructor_expects_0_arguments_got_1, firstTypeArg.arity, appliedArgs.length);
+                    // Return error type
+                    return { flags: TypeFlags.Any, id: 0, checker: this } as Type;
+                }
+                
+                // Apply the type constructor
+                return applyTypeConstructor(this, firstTypeArg, appliedArgs, node);
+            } else {
+                // First argument is not a TypeConstructorType
+                error(typeArguments[0], Diagnostics.First_argument_to_Apply_must_be_a_type_constructor);
+                // Return error type
+                return { flags: TypeFlags.Any, id: 0, checker: this } as Type;
+            }
+        }
+        
+        // Fall back to normal behavior if first arg is missing or not a TypeConstructorType
+    }
+    
+    // Fall back to normal TypeReference handling
+    return getTypeFromTypeReference(node as TypeReferenceType);
+}
+
+/**
+ * Kind validation integration for checkTypeArgumentConstraints
+ */
+function integrateKindValidationInCheckTypeArgumentConstraints(node: TypeReferenceNode | ExpressionWithTypeArguments | NodeWithTypeArguments, typeParameters: readonly TypeParameter[]): void {
         if (typeParameters && typeParameters.length > 0) {
             // Kind validation logic here
             // This would validate kind constraints for type arguments

@@ -8611,5 +8611,29 @@
     "Replace with known functor": {
         "category": "Message",
         "code": 9523
+    },
+    "First argument to Apply must be a type constructor.": {
+        "category": "Error",
+        "code": 9524
+    },
+    "Type constructor expects {0} arguments, got {1}.": {
+        "category": "Error",
+        "code": 9525
+    },
+    "Type argument '{0}' does not satisfy the kind constraint '{1}'.": {
+        "category": "Error",
+        "code": 9526
+    },
+    "Type argument '{0}' must be a type constructor to satisfy the kind constraint '{1}'.": {
+        "category": "Error",
+        "code": 9527
+    },
+    "Type constructor kind mismatch: {0}.": {
+        "category": "Error",
+        "code": 9528
+    },
+    "Expected a type constructor matching constraint {0}.": {
+        "category": "Error",
+        "code": 9529
     }
 }

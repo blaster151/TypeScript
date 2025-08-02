@@ -6124,6 +6124,13 @@ export interface SymbolLinks {
     parameterKinds?: Type[]; // Resolved parameter types for Kind<...>
     kindFlags?: number; // Optional flags for covariance/contravariance info
     isInferredKind?: boolean; // True if kind was inferred rather than explicitly annotated
+    
+    // Kind constraint metadata for type parameters
+    kindConstraintMetadata?: {
+        arity: number;
+        parameterKinds: readonly Type[];
+        constraintType: KindType;
+    };
 }
 
 // dprint-ignore
