@@ -18,6 +18,9 @@ import {
     ThisContainer,
 } from "./_namespaces/ts.js";
 
+// Import kind-related types for HKT support
+import type { KindMetadata } from "./kindMetadata.js";
+
 // branded string type used to store absolute, normalized and canonicalized paths
 // arbitrary file name can be converted to Path via toPath function
 export type Path = string & { __pathBrand: any; };
@@ -1840,6 +1843,9 @@ export interface TypeParameterDeclaration extends NamedDeclaration, JSDocContain
 
     // For error recovery purposes (see `isGrammarError` in utilities.ts).
     expression?: Expression;
+    
+    // HKT support: kind annotation for higher-kinded type parameters
+    readonly kindAnnotation?: KindTypeNode;
 }
 
 export interface SignatureDeclarationBase extends NamedDeclaration, JSDocContainer {
@@ -6924,6 +6930,14 @@ export interface TypeParameter extends InstantiableType {
     isThisType?: boolean;
     /** @internal */
     resolvedDefaultType?: Type;
+    
+    // HKT support: kind information for higher-kinded type parameters
+    /** @internal */
+    kindMetadata?: KindMetadata;
+    /** @internal */
+    isHigherKinded?: boolean;
+    /** @internal */
+    kindArity?: number;
 }
 
 /** @internal */
