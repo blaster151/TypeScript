@@ -1,0 +1,20 @@
+diff --git a/bin/tsplusc.js b/bin/tsplusc.js
+index 91ed9ada78..85757d0d33 100644
+--- a/bin/tsplusc.js
++++ b/bin/tsplusc.js
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env node
++#!/usr/bin/env node
+ /**
+  * tsplusc - Kind-aware TypeScript compiler CLI
+  * 
+diff --git a/bin/tsplusserver.js b/bin/tsplusserver.js
+index 205906a927..b30b57c19a 100644
+--- a/bin/tsplusserver.js
++++ b/bin/tsplusserver.js
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env node
++#!/usr/bin/env node
+ /**
+  * tsplusserver - Kind-aware TypeScript language server
+  * 
