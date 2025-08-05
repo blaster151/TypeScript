@@ -450,4 +450,200 @@ export {
   Nothing,
   Left,
   Right
-}; 
+};
+
+// Re-export extended bifunctor monad combinators
+export {
+  // Core types
+  BifunctorMonad,
+  ApplyBifunctorMonad,
+  
+  // Generic combinators
+  bichain,
+  chainLeft,
+  matchM,
+  
+  // Either-specific combinators
+  EitherBifunctorMonad,
+  bichainEither,
+  chainLeftEither,
+  matchMEither,
+  
+  // Result-specific combinators
+  ResultBifunctorMonad,
+  bichainResult,
+  chainErrResult,
+  matchMResult,
+  
+  // TaskEither implementation
+  TaskEither,
+  TaskEitherLeft,
+  TaskEitherRight,
+  TaskEitherBifunctorMonad,
+  bichainTaskEither,
+  chainLeftTaskEither,
+  matchMTaskEither,
+  
+  // Utility functions
+  eitherToTaskEither,
+  taskEitherToPromise,
+  promiseToTaskEither,
+  createTaskEitherWithPurity,
+  EffectOfTaskEither,
+  IsTaskEitherPure
+} from './fp-bimonad-extended';
+
+// Re-export ObservableLite
+export {
+  // Core types
+  ObservableLite,
+  Observer,
+  Unsubscribe,
+  Subscribe,
+  
+  // HKT types
+  ObservableLiteK,
+  ObservableLiteWithEffect,
+  ApplyObservableLite,
+  ObservableLiteOf,
+  
+  // Purity types
+  EffectOfObservableLite,
+  IsObservableLitePure,
+  IsObservableLiteImpure,
+  
+  // Typeclass instances
+  ObservableLiteFunctor,
+  ObservableLiteApplicative,
+  ObservableLiteMonad,
+  
+  // Utility functions
+  fromAsync,
+  fromAsyncGenerator,
+  fromGenerator,
+  fromIterable,
+  fromCallback,
+  fromTry,
+  
+  // Type guards
+  isObservableLite,
+  isObservableLiteOf,
+  createObservable,
+  
+  // Registration
+  registerObservableLiteInstances
+} from './fp-observable-lite';
+
+// Re-export Fluent Methods
+export {
+  // Core types
+  TypeclassInstances,
+  FluentMethodOptions,
+  FluentMethodDecorator,
+  GlobalFluentMethodsConfig,
+  
+  // Registry functions
+  registerFluentMethodInstances,
+  getFluentMethodInstances,
+  getADTTypeclassInstancesForFluent,
+  
+  // Decorator functions
+  withFluentMethods,
+  hasFluentMethods,
+  withoutFluentMethods,
+  
+  // ADT-specific decorators
+  withMaybeFluentMethods,
+  withEitherFluentMethods,
+  withResultFluentMethods,
+  withObservableLiteFluentMethods,
+  
+  // Global configuration
+  enableGlobalFluentMethods,
+  disableGlobalFluentMethods,
+  isGlobalFluentMethodsEnabled,
+  getGlobalFluentMethodsConfig,
+  
+  // Utility functions
+  createFluentMethodDecorator,
+  hasInstanceFluentMethods,
+  getAvailableFluentMethods,
+  validateFluentMethodChain,
+  
+  // Type helpers
+  FluentMethodResult,
+  FluentMethodChain
+} from './fp-fluent-methods';
+
+// Re-export Optics
+export {
+  // Core optic types
+  Optic,
+  Lens,
+  Prism,
+  Traversal,
+  Iso,
+  Getter,
+  Setter,
+  
+  // Profunctor variants
+  Choice,
+  Traversing,
+  Strong,
+  
+  // Identity instances
+  IdentityProfunctor,
+  IdentityChoice,
+  IdentityTraversing,
+  IdentityStrong,
+  
+  // Lens utilities
+  lens,
+  view,
+  set,
+  over,
+  
+  // Prism utilities
+  prism,
+  preview,
+  review,
+  isMatching,
+  
+  // Traversal utilities
+  traversal,
+  traverse,
+  map,
+  
+  // Common constructors
+  prop,
+  at,
+  head,
+  last,
+  just,
+  right,
+  left,
+  ok,
+  err,
+  array,
+  values,
+  keys,
+  
+  // Composition
+  compose,
+  composeMany,
+  
+  // HKT types
+  OpticK,
+  OpticWithEffect,
+  EffectOfOptic,
+  IsOpticPure,
+  IsOpticImpure,
+  
+  // Utility functions
+  isLens,
+  isPrism,
+  isTraversal,
+  isOptic,
+  to,
+  sets
+} from './fp-optics'; 

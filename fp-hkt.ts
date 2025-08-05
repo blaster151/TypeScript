@@ -200,6 +200,13 @@ export interface StateK extends Kind2 {
   readonly type: State<this['arg0'], this['arg1']>;
 }
 
+/**
+ * ObservableLite type constructor as HKT (reactive streams)
+ */
+export interface ObservableLiteK extends Kind1 {
+  readonly type: any; // Will be properly typed when imported
+}
+
 // ============================================================================
 // Higher-Order Kinds (Optional Extra Credit)
 // ============================================================================
