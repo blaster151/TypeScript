@@ -377,9 +377,9 @@ export function validationResultCoalg(seed: number): Result<number, string> | nu
   if (seed < 0) {
     return null; // Terminate for negative numbers
   } else if (seed > 100) {
-    return Result.Err(`Value too large: ${seed}`);
+    return Err(`Value too large: ${seed}`);
   } else {
-    return Result.Ok(seed);
+    return Ok(seed);
   }
 }
 

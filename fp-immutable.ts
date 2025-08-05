@@ -1,11 +1,17 @@
 /**
- * Immutable Core - Type-safe Immutability Utilities
+ * Structural Immutability Utilities
  * 
- * This module provides:
- * - Type-level immutability utilities (shallow and deep)
- * - Runtime helpers for safe updates to immutable data
- * - Integration with the FP ecosystem (typeclasses, HKTs, GADTs)
- * - Structural sharing for efficient immutable operations
+ * This module provides comprehensive immutability utilities for arrays, objects, and tuples
+ * with type-level tracking so the Purity System can detect and propagate immutability guarantees.
+ * 
+ * Features:
+ * - Core type-level definitions (Immutable<T>, DeepReadonly<T>, IsImmutable<T>)
+ * - Immutable constructors for arrays, objects, and tuples
+ * - Safe update utilities that never mutate
+ * - Integration with purity system (defaults to Pure)
+ * - Typeclass integration (ImmutableFunctor, ImmutableMonad)
+ * - Readonly pattern matching support
+ * - Compile-time immutability enforcement
  */
 
 import {
@@ -16,942 +22,767 @@ import {
 } from './fp-hkt';
 
 import {
-  Functor, Applicative, Monad, Bifunctor,
+  Functor, Applicative, Monad, Bifunctor, Profunctor, Traversable, Foldable,
   deriveFunctor, deriveApplicative, deriveMonad,
   lift2, composeK, sequence, traverse
 } from './fp-typeclasses-hkt';
 
 import {
-  GADT, GADTTags, GADTPayload,
-  pmatch, PatternMatcherBuilder,
-  derivePatternMatcher, createPmatchBuilder,
-  Expr, ExprK, evaluate, transformString, ExprFunctor,
-  MaybeGADT, MaybeGADTK, MaybeGADTFunctor, MaybeGADTApplicative, MaybeGADTMonad,
-  EitherGADT, EitherGADTK, EitherGADTBifunctor,
-  Result, ResultK, ResultFunctor, deriveResultMonad
-} from './fp-gadt-enhanced';
+  EffectTag, EffectOf, Pure, IO, Async, Effect,
+  isPure, isIO, isAsync, getEffectTag,
+  PurityContext, PurityError, PurityResult,
+  createPurityInfo, attachPurityMarker, extractPurityMarker, hasPurityMarker
+} from './fp-purity';
 
 // ============================================================================
-// Part 1: Type-Level Immutability Utilities
+// Part 1: Core Type-Level Definitions
 // ============================================================================
 
 /**
- * Shallow structural immutability
- * Makes all properties readonly at the top level
+ * Recursively marks all fields as readonly, ensuring array/tuple elements are immutable too
+ * 
+ * @example
+ * ```typescript
+ * type ImmutableUser = Immutable<{
+ *   name: string;
+ *   age: number;
+ *   hobbies: string[];
+ *   address: { city: string; country: string; }
+ * }>;
+ * 
+ * // Results in:
+ * // {
+ * //   readonly name: string;
+ * //   readonly age: number;
+ * //   readonly hobbies: readonly string[];
+ * //   readonly address: {
+ * //     readonly city: string;
+ * //     readonly country: string;
+ * //   };
+ * // }
+ * ```
  */
-export type Immutable<T> = { readonly [K in keyof T]: T[K] };
+export type Immutable<T> = T extends readonly (infer U)[]
+  ? readonly Immutable<U>[]
+  : T extends readonly [...infer Head, ...infer Tail]
+  ? readonly [...Immutable<Head>, ...Immutable<Tail>]
+  : T extends readonly [infer First, ...infer Rest]
+  ? readonly [Immutable<First>, ...Immutable<Rest>]
+  : T extends readonly []
+  ? readonly []
+  : T extends (infer U)[]
+  ? readonly Immutable<U>[]
+  : T extends [...infer Head, ...infer Tail]
+  ? readonly [...Immutable<Head>, ...Immutable<Tail>]
+  : T extends [infer First, ...infer Rest]
+  ? readonly [Immutable<First>, ...Immutable<Rest>]
+  : T extends []
+  ? readonly []
+  : T extends object
+  ? { readonly [K in keyof T]: Immutable<T[K]> }
+  : T;
 
 /**
- * Deep structural immutability
- * Recursively makes all properties readonly throughout the object structure
+ * Synonym for Immutable<T>, but keeps naming consistent with TS style
  */
-export type DeepImmutable<T> =
-  T extends (infer U)[] ? readonly DeepImmutable<U>[] :
-  T extends readonly (infer U)[] ? readonly DeepImmutable<U>[] :
-  T extends Set<infer U> ? ReadonlySet<DeepImmutable<U>> :
-  T extends Map<infer K, infer V> ? ReadonlyMap<DeepImmutable<K>, DeepImmutable<V>> :
-  T extends object ? { readonly [K in keyof T]: DeepImmutable<T[K]> } :
-  T;
+export type DeepReadonly<T> = Immutable<T>;
 
 /**
- * Immutable tuple that retains tuple-ness
- * Preserves the exact length and structure of the original tuple
+ * Resolves to true if T is Immutable, false otherwise
+ * 
+ * @example
+ * ```typescript
+ * type Check1 = IsImmutable<readonly number[]>; // true
+ * type Check2 = IsImmutable<number[]>; // false
+ * type Check3 = IsImmutable<{ readonly a: number }>; // true
+ * type Check4 = IsImmutable<{ a: number }>; // false
+ * ```
  */
-export type ImmutableTuple<T extends readonly unknown[]> = { readonly [K in keyof T]: DeepImmutable<T[K]> };
+export type IsImmutable<T> = T extends Immutable<T> ? true : false;
 
 /**
- * Mutable type (removes readonly modifiers)
- * Inverse of Immutable<T>
+ * Phantom kind to tag an HKT as producing immutable structures
  */
-export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+export interface ImmutableKind<T> {
+  readonly __immutableBrand: unique symbol;
+  readonly type: Immutable<T>;
+}
 
 /**
- * Deep mutable type (removes readonly modifiers recursively)
- * Inverse of DeepImmutable<T>
+ * Branded type for immutable values with runtime immutability guarantee
  */
-export type DeepMutable<T> =
-  T extends readonly (infer U)[] ? DeepMutable<U>[] :
-  T extends ReadonlySet<infer U> ? Set<DeepMutable<U>> :
-  T extends ReadonlyMap<infer K, infer V> ? Map<DeepMutable<K>, DeepMutable<V>> :
-  T extends object ? { -readonly [K in keyof T]: DeepMutable<T[K]> } :
-  T;
+export interface ImmutableBrand {
+  readonly __immutableBrand: unique symbol;
+}
 
 /**
- * Conditional immutability
- * Makes T immutable if Condition is true, otherwise leaves it mutable
+ * Type that combines immutability with a branded guarantee
  */
-export type ConditionalImmutable<T, Condition extends boolean> = 
-  Condition extends true ? DeepImmutable<T> : T;
+export type ImmutableValue<T> = Immutable<T> & ImmutableBrand;
 
 /**
- * Immutable array type
- * Preserves array methods while ensuring immutability
+ * Check if a type is an immutable value (branded)
  */
-export type ImmutableArray<T> = readonly DeepImmutable<T>[];
+export type IsImmutableValue<T> = T extends ImmutableBrand ? true : false;
 
 /**
- * Immutable object with optional properties
- * Makes all properties readonly and optional
+ * Extract the underlying type from an immutable value
  */
-export type ImmutablePartial<T> = { readonly [K in keyof T]?: DeepImmutable<T[K]> };
-
-/**
- * Immutable object with required properties
- * Makes all properties readonly and required
- */
-export type ImmutableRequired<T> = { readonly [K in keyof T]-?: DeepImmutable<T[K]> };
-
-/**
- * Immutable record type
- * Creates an immutable object with keys of type K and values of type V
- */
-export type ImmutableRecord<K extends string | number | symbol, V> = { readonly [P in K]: DeepImmutable<V> };
+export type ExtractImmutableType<T> = T extends ImmutableValue<infer U> ? U : T;
 
 // ============================================================================
-// Part 2: Runtime Helpers for Safe Updates
+// Part 2: Integration with Purity System
 // ============================================================================
 
 /**
- * Deep freeze an object, making it immutable at runtime
- * @param obj - The object to freeze
- * @returns The deeply frozen object
+ * Extend the purity system to recognize immutable types as Pure
  */
-export function freezeDeep<T>(obj: T): DeepImmutable<T> {
-  if (obj === null || obj === undefined || typeof obj !== 'object') {
-    return obj as DeepImmutable<T>;
+declare module './fp-purity' {
+  interface EffectKind<Tag extends EffectTag> {
+    readonly __immutableBrand?: ImmutableBrand;
   }
-
-  if (Array.isArray(obj)) {
-    return Object.freeze(obj.map(item => freezeDeep(item))) as DeepImmutable<T>;
-  }
-
-  if (obj instanceof Set) {
-    return Object.freeze(new Set(Array.from(obj).map(item => freezeDeep(item)))) as DeepImmutable<T>;
-  }
-
-  if (obj instanceof Map) {
-    return Object.freeze(new Map(
-      Array.from(obj.entries()).map(([key, value]) => [freezeDeep(key), freezeDeep(value)])
-    )) as DeepImmutable<T>;
-  }
-
-  const frozen = {} as DeepImmutable<T>;
-  for (const key in obj) {
-    if (obj.hasOwnProperty(key)) {
-      (frozen as any)[key] = freezeDeep((obj as any)[key]);
-    }
-  }
-  return Object.freeze(frozen);
 }
 
 /**
- * Update an immutable object by applying an updater function to a specific key
- * @param obj - The immutable object to update
- * @param key - The key to update
- * @param updater - Function that takes the current value and returns the new value
- * @returns A new immutable object with the updated value
+ * Immutable type with purity integration
  */
-export function updateImmutable<T, K extends keyof T>(
-  obj: T,
-  key: K,
-  updater: (value: T[K]) => T[K]
-): T {
-  const newObj = { ...obj } as T;
-  (newObj as any)[key] = updater((obj as any)[key]);
-  return newObj;
+export interface ImmutableWithPurity<T, P extends EffectTag = 'Pure'> {
+  readonly value: Immutable<T>;
+  readonly effect: P;
+  readonly __immutableBrand: ImmutableBrand;
 }
 
 /**
- * Set a value at a specific path in an immutable object
- * @param obj - The immutable object to update
- * @param path - Array of keys representing the path to the value
- * @param value - The new value to set
- * @returns A new immutable object with the updated value
+ * Create an immutable value with purity information
  */
-export function setInImmutable<T>(obj: T, path: (string | number)[], value: unknown): T {
-  if (path.length === 0) {
-    return value as T;
-  }
-
-  const [first, ...rest] = path;
-  
-  if (Array.isArray(obj)) {
-    const index = Number(first);
-    const newArray = [...obj] as any[];
-    newArray[index] = rest.length === 0 ? value : setInImmutable(newArray[index], rest, value);
-    return newArray as T;
-  }
-
-  if (typeof obj === 'object' && obj !== null) {
-    const newObj = { ...obj } as any;
-    newObj[first] = rest.length === 0 ? value : setInImmutable(newObj[first], rest, value);
-    return newObj as T;
-  }
-
-  throw new Error(`Cannot set value at path ${path.join('.')} in non-object/non-array`);
+export function createImmutableWithPurity<T, P extends EffectTag = 'Pure'>(
+  value: T,
+  effect: P = 'Pure' as P
+): ImmutableWithPurity<T, P> {
+  const immutableValue = deepFreeze(value) as Immutable<T>;
+  return {
+    value: immutableValue,
+    effect,
+    __immutableBrand: {} as ImmutableBrand
+  };
 }
 
 /**
- * Push items to an immutable array
- * @param arr - The immutable array
- * @param items - Items to push
- * @returns A new immutable array with the items added
+ * Extract the effect from an immutable value
  */
-export function pushImmutable<T>(arr: readonly T[], ...items: T[]): readonly T[] {
-  return [...arr, ...items];
+export type EffectOfImmutable<T> = T extends ImmutableWithPurity<any, infer P> ? P : 'Pure';
+
+/**
+ * Check if an immutable value is pure
+ */
+export type IsImmutablePure<T> = EffectOfImmutable<T> extends 'Pure' ? true : false;
+
+// ============================================================================
+// Part 3: Immutable Constructors
+// ============================================================================
+
+/**
+ * Create an immutable array with type safety
+ * 
+ * @example
+ * ```typescript
+ * const nums = immutableArray(1, 2, 3);
+ * // Type: readonly number[]
+ * // No mutation methods like push, pop are available
+ * ```
+ */
+export function immutableArray<T>(...items: Immutable<T>[]): Immutable<T[]> {
+  return Object.freeze([...items]) as Immutable<T[]>;
 }
 
 /**
- * Splice an immutable array (remove and/or insert items)
- * @param arr - The immutable array
- * @param start - Starting index
- * @param deleteCount - Number of items to delete
- * @param items - Items to insert
- * @returns A new immutable array with the changes applied
+ * Create an immutable tuple with type inference
+ * 
+ * @example
+ * ```typescript
+ * const tuple = immutableTuple(1, "hello", true);
+ * // Type: readonly [number, string, boolean]
+ * ```
  */
-export function spliceImmutable<T>(
-  arr: readonly T[], 
-  start: number, 
-  deleteCount: number = 0, 
-  ...items: T[]
-): readonly T[] {
-  const newArray = [...arr];
-  newArray.splice(start, deleteCount, ...items);
-  return newArray;
+export function immutableTuple<T extends readonly any[]>(
+  ...items: { [K in keyof T]: Immutable<T[K]> }
+): Immutable<T> {
+  return Object.freeze([...items]) as Immutable<T>;
 }
+
+/**
+ * Create an immutable object with deep freezing
+ * 
+ * @example
+ * ```typescript
+ * const obj = immutableObject({ a: 1, b: { c: 2 } });
+ * // Type: { readonly a: number; readonly b: { readonly c: number; } }
+ * ```
+ */
+export function immutableObject<T extends object>(obj: T): Immutable<T> {
+  return deepFreeze(obj) as Immutable<T>;
+}
+
+/**
+ * Create an immutable set
+ * 
+ * @example
+ * ```typescript
+ * const set = immutableSet(1, 2, 3);
+ * // Type: ReadonlySet<number>
+ * ```
+ */
+export function immutableSet<T>(...items: Immutable<T>[]): ReadonlySet<Immutable<T>> {
+  return Object.freeze(new Set(items)) as ReadonlySet<Immutable<T>>;
+}
+
+/**
+ * Create an immutable map
+ * 
+ * @example
+ * ```typescript
+ * const map = immutableMap([["a", 1], ["b", 2]]);
+ * // Type: ReadonlyMap<string, number>
+ * ```
+ */
+export function immutableMap<K, V>(
+  entries: readonly (readonly [Immutable<K>, Immutable<V>])[]
+): ReadonlyMap<Immutable<K>, Immutable<V>> {
+  return Object.freeze(new Map(entries)) as ReadonlyMap<Immutable<K>, Immutable<V>>;
+}
+
+// ============================================================================
+// Part 4: Safe Update Utilities
+// ============================================================================
 
 /**
  * Update an immutable array at a specific index
- * @param arr - The immutable array
- * @param index - The index to update
- * @param updater - Function that takes the current value and returns the new value
- * @returns A new immutable array with the updated value
+ * Always returns a new array - never mutates
+ * 
+ * @example
+ * ```typescript
+ * const nums = immutableArray(1, 2, 3);
+ * const updated = updateImmutableArray(nums, 1, 42);
+ * // updated: readonly [number, number, number]
+ * // nums remains unchanged
+ * ```
  */
-export function updateArrayImmutable<T>(
-  arr: readonly T[],
+export function updateImmutableArray<T>(
+  arr: Immutable<T[]>,
   index: number,
-  updater: (value: T) => T
-): readonly T[] {
+  value: Immutable<T>
+): Immutable<T[]> {
   if (index < 0 || index >= arr.length) {
     throw new Error(`Index ${index} out of bounds for array of length ${arr.length}`);
   }
   
   const newArray = [...arr];
-  newArray[index] = updater(newArray[index]);
-  return newArray;
+  newArray[index] = value;
+  return Object.freeze(newArray) as Immutable<T[]>;
 }
 
 /**
- * Remove an item from an immutable array at a specific index
- * @param arr - The immutable array
- * @param index - The index to remove
- * @returns A new immutable array without the item at the specified index
+ * Update an immutable object at a specific key
+ * Always returns a new object - never mutates
+ * 
+ * @example
+ * ```typescript
+ * const obj = immutableObject({ a: 1, b: 2 });
+ * const updated = updateImmutableObject(obj, 'a', 42);
+ * // updated: { readonly a: number; readonly b: number }
+ * // obj remains unchanged
+ * ```
  */
-export function removeFromImmutable<T>(arr: readonly T[], index: number): readonly T[] {
-  return spliceImmutable(arr, index, 1);
+export function updateImmutableObject<T extends object, K extends keyof T>(
+  obj: Immutable<T>,
+  key: K,
+  value: Immutable<T[K]>
+): Immutable<T> {
+  return Object.freeze({
+    ...obj,
+    [key]: value
+  }) as Immutable<T>;
 }
 
 /**
- * Insert an item into an immutable array at a specific index
- * @param arr - The immutable array
- * @param index - The index to insert at
- * @param item - The item to insert
- * @returns A new immutable array with the item inserted
+ * Update an immutable tuple at a specific index
+ * Always returns a new tuple - never mutates
+ * 
+ * @example
+ * ```typescript
+ * const tuple = immutableTuple(1, "hello", true);
+ * const updated = updateImmutableTuple(tuple, 1, "world");
+ * // updated: readonly [number, string, boolean]
+ * // tuple remains unchanged
+ * ```
  */
-export function insertImmutable<T>(arr: readonly T[], index: number, item: T): readonly T[] {
-  return spliceImmutable(arr, index, 0, item);
+export function updateImmutableTuple<T extends readonly any[], I extends keyof T>(
+  tuple: Immutable<T>,
+  index: I,
+  value: Immutable<T[I]>
+): Immutable<T> {
+  if (index < 0 || index >= tuple.length) {
+    throw new Error(`Index ${String(index)} out of bounds for tuple of length ${tuple.length}`);
+  }
+  
+  const newTuple = [...tuple] as T;
+  newTuple[index] = value;
+  return Object.freeze(newTuple) as Immutable<T>;
 }
 
 /**
- * Update an immutable set by adding or removing items
- * @param set - The immutable set
- * @param items - Items to add
- * @param itemsToRemove - Items to remove
- * @returns A new immutable set with the changes applied
+ * Deep merge two immutable objects
+ * Always returns a new object - never mutates
+ * 
+ * @example
+ * ```typescript
+ * const obj1 = immutableObject({ a: 1, b: { c: 2 } });
+ * const obj2 = immutableObject({ b: { d: 3 }, e: 4 });
+ * const merged = mergeImmutableObjects(obj1, obj2);
+ * // merged: { readonly a: number; readonly b: { readonly c: number; readonly d: number; }; readonly e: number; }
+ * ```
  */
-export function updateSetImmutable<T>(
-  set: ReadonlySet<T>,
-  items: T[] = [],
-  itemsToRemove: T[] = []
-): ReadonlySet<T> {
-  const newSet = new Set(set);
-  items.forEach(item => newSet.add(item));
-  itemsToRemove.forEach(item => newSet.delete(item));
-  return newSet;
+export function mergeImmutableObjects<T extends object, U extends object>(
+  obj1: Immutable<T>,
+  obj2: Immutable<U>
+): Immutable<T & U> {
+  const merged = { ...obj1 };
+  
+  for (const [key, value] of Object.entries(obj2)) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      merged[key as keyof (T & U)] = mergeImmutableObjects(
+        merged[key as keyof (T & U)] as object,
+        value as object
+      ) as (T & U)[keyof (T & U)];
+    } else {
+      merged[key as keyof (T & U)] = value as (T & U)[keyof (T & U)];
+    }
+  }
+  
+  return Object.freeze(merged) as Immutable<T & U>;
 }
 
 /**
- * Update an immutable map by setting or removing key-value pairs
- * @param map - The immutable map
- * @param entries - Key-value pairs to set
- * @param keysToRemove - Keys to remove
- * @returns A new immutable map with the changes applied
+ * Append to an immutable array
+ * Always returns a new array - never mutates
+ * 
+ * @example
+ * ```typescript
+ * const nums = immutableArray(1, 2, 3);
+ * const appended = appendImmutableArray(nums, 4);
+ * // appended: readonly [number, number, number, number]
+ * // nums remains unchanged
+ * ```
  */
-export function updateMapImmutable<K, V>(
-  map: ReadonlyMap<K, V>,
-  entries: [K, V][] = [],
-  keysToRemove: K[] = []
-): ReadonlyMap<K, V> {
-  const newMap = new Map(map);
-  entries.forEach(([key, value]) => newMap.set(key, value));
-  keysToRemove.forEach(key => newMap.delete(key));
-  return newMap;
+export function appendImmutableArray<T>(
+  arr: Immutable<T[]>,
+  item: Immutable<T>
+): Immutable<T[]> {
+  return Object.freeze([...arr, item]) as Immutable<T[]>;
 }
 
 /**
- * Merge two immutable objects
- * @param obj1 - The first immutable object
- * @param obj2 - The second immutable object
- * @returns A new immutable object with properties from both objects
+ * Prepend to an immutable array
+ * Always returns a new array - never mutates
+ * 
+ * @example
+ * ```typescript
+ * const nums = immutableArray(1, 2, 3);
+ * const prepended = prependImmutableArray(nums, 0);
+ * // prepended: readonly [number, number, number, number]
+ * // nums remains unchanged
+ * ```
  */
-export function mergeImmutable<T1, T2>(obj1: T1, obj2: T2): T1 & T2 {
-  return { ...obj1, ...obj2 } as T1 & T2;
+export function prependImmutableArray<T>(
+  arr: Immutable<T[]>,
+  item: Immutable<T>
+): Immutable<T[]> {
+  return Object.freeze([item, ...arr]) as Immutable<T[]>;
 }
 
 /**
- * Merge multiple immutable objects
- * @param objects - Array of immutable objects to merge
- * @returns A new immutable object with properties from all objects
+ * Remove an item from an immutable array by index
+ * Always returns a new array - never mutates
+ * 
+ * @example
+ * ```typescript
+ * const nums = immutableArray(1, 2, 3);
+ * const removed = removeImmutableArray(nums, 1);
+ * // removed: readonly [number, number]
+ * // nums remains unchanged
+ * ```
  */
-export function mergeAllImmutable<T extends readonly object[]>(...objects: T): T[number] {
-  return objects.reduce((acc, obj) => ({ ...acc, ...obj }), {}) as T[number];
+export function removeImmutableArray<T>(
+  arr: Immutable<T[]>,
+  index: number
+): Immutable<T[]> {
+  if (index < 0 || index >= arr.length) {
+    throw new Error(`Index ${index} out of bounds for array of length ${arr.length}`);
+  }
+  
+  const newArray = [...arr];
+  newArray.splice(index, 1);
+  return Object.freeze(newArray) as Immutable<T[]>;
 }
 
 // ============================================================================
-// Part 3: FP Ecosystem Integration
+// Part 5: Deep Freeze Utility
 // ============================================================================
 
 /**
- * Immutable Array Kind for FP typeclass integration
+ * Deep freeze an object, making it and all nested objects immutable
+ * 
+ * @example
+ * ```typescript
+ * const obj = { a: 1, b: { c: 2, d: [3, 4] } };
+ * const frozen = deepFreeze(obj);
+ * // frozen and all nested objects are now immutable
+ * ```
  */
-export interface ImmutableArrayK extends Kind1 {
-  readonly type: ImmutableArray<this['arg0']>;
+export function deepFreeze<T>(obj: T): Immutable<T> {
+  if (obj === null || obj === undefined || typeof obj !== 'object') {
+    return obj as Immutable<T>;
+  }
+  
+  // Freeze the object itself
+  Object.freeze(obj);
+  
+  // Freeze all properties
+  for (const key of Object.getOwnPropertyNames(obj)) {
+    const value = (obj as any)[key];
+    if (value && typeof value === 'object') {
+      deepFreeze(value);
+    }
+  }
+  
+  return obj as Immutable<T>;
 }
 
 /**
- * Immutable Tuple Kind for FP typeclass integration
+ * Check if an object is deeply frozen
+ * 
+ * @example
+ * ```typescript
+ * const obj = { a: 1, b: { c: 2 } };
+ * const frozen = deepFreeze(obj);
+ * const isFrozen = isDeeplyFrozen(frozen); // true
+ * ```
  */
-export interface ImmutableTupleK extends Kind2 {
-  readonly type: ImmutableTuple<[this['arg0'], this['arg1']]>;
+export function isDeeplyFrozen<T>(obj: T): obj is Immutable<T> {
+  if (obj === null || obj === undefined || typeof obj !== 'object') {
+    return true;
+  }
+  
+  if (!Object.isFrozen(obj)) {
+    return false;
+  }
+  
+  for (const key of Object.getOwnPropertyNames(obj)) {
+    const value = (obj as any)[key];
+    if (value && typeof value === 'object' && !isDeeplyFrozen(value)) {
+      return false;
+    }
+  }
+  
+  return true;
 }
 
-/**
- * Immutable Set Kind for FP typeclass integration
- */
-export interface ImmutableSetK extends Kind1 {
-  readonly type: ReadonlySet<this['arg0']>;
-}
+// ============================================================================
+// Part 6: Typeclass Integration
+// ============================================================================
 
 /**
- * Immutable Map Kind for FP typeclass integration
+ * Immutable Functor instance for arrays
  */
-export interface ImmutableMapK extends Kind2 {
-  readonly type: ReadonlyMap<this['arg0'], this['arg1']>;
-}
-
-/**
- * Functor instance for ImmutableArrayK
- * Maps over immutable arrays while preserving immutability
- */
-export const ImmutableArrayFunctor: Functor<ImmutableArrayK> = {
-  map: <A, B>(fa: ImmutableArray<A>, f: (a: A) => B): ImmutableArray<B> => 
-    fa.map(f)
+export const ImmutableArrayFunctor: Functor<ArrayK> = {
+  map: <A, B>(fa: Immutable<A[]>, f: (a: A) => B): Immutable<B[]> => {
+    return Object.freeze(fa.map(f)) as Immutable<B[]>;
+  }
 };
 
 /**
- * Applicative instance for ImmutableArrayK
- * Provides pure and ap operations for immutable arrays
+ * Immutable Applicative instance for arrays
  */
-export const ImmutableArrayApplicative: Applicative<ImmutableArrayK> = {
+export const ImmutableArrayApplicative: Applicative<ArrayK> = {
   ...ImmutableArrayFunctor,
-  of: <A>(a: A): ImmutableArray<A> => [a],
-  ap: <A, B>(fab: ImmutableArray<(a: A) => B>, fa: ImmutableArray<A>): ImmutableArray<B> => {
+  of: <A>(a: A): Immutable<A[]> => {
+    return Object.freeze([a]) as Immutable<A[]>;
+  },
+  ap: <A, B>(fab: Immutable<((a: A) => B)[]>, fa: Immutable<A[]>): Immutable<B[]> => {
     const result: B[] = [];
     for (const f of fab) {
       for (const a of fa) {
         result.push(f(a));
       }
     }
-    return result;
+    return Object.freeze(result) as Immutable<B[]>;
   }
 };
 
 /**
- * Monad instance for ImmutableArrayK
- * Provides chain operation for immutable arrays
+ * Immutable Monad instance for arrays
  */
-export const ImmutableArrayMonad: Monad<ImmutableArrayK> = {
+export const ImmutableArrayMonad: Monad<ArrayK> = {
   ...ImmutableArrayApplicative,
-  chain: <A, B>(fa: ImmutableArray<A>, f: (a: A) => ImmutableArray<B>): ImmutableArray<B> => 
-    fa.flatMap(f)
-};
-
-/**
- * Functor instance for ImmutableSetK
- * Maps over immutable sets while preserving immutability
- */
-export const ImmutableSetFunctor: Functor<ImmutableSetK> = {
-  map: <A, B>(fa: ReadonlySet<A>, f: (a: A) => B): ReadonlySet<B> => 
-    new Set(Array.from(fa).map(f))
-};
-
-/**
- * Functor instance for ImmutableMapK
- * Maps over immutable map values while preserving immutability
- */
-export const ImmutableMapFunctor: Functor<ImmutableMapK> = {
-  map: <A, B>(fa: ReadonlyMap<any, A>, f: (a: A) => B): ReadonlyMap<any, B> => {
-    const newMap = new Map();
-    for (const [key, value] of fa) {
-      newMap.set(key, f(value));
+  chain: <A, B>(fa: Immutable<A[]>, f: (a: A) => Immutable<B[]>): Immutable<B[]> => {
+    const result: B[] = [];
+    for (const a of fa) {
+      const fb = f(a);
+      for (const b of fb) {
+        result.push(b);
+      }
     }
-    return newMap;
+    return Object.freeze(result) as Immutable<B[]>;
   }
 };
 
 /**
- * Bifunctor instance for ImmutableMapK
- * Maps over both keys and values of immutable maps
+ * Immutable Traversable instance for arrays
  */
-export const ImmutableMapBifunctor: Bifunctor<ImmutableMapK> = {
-  bimap: <A, B, C, D>(
-    fab: ReadonlyMap<A, B>,
-    f: (a: A) => C,
-    g: (b: B) => D
-  ): ReadonlyMap<C, D> => {
-    const newMap = new Map();
-    for (const [key, value] of fab) {
-      newMap.set(f(key), g(value));
-    }
-    return newMap;
+export const ImmutableArrayTraversable: Traversable<ArrayK> = {
+  ...ImmutableArrayFunctor,
+  sequence: <A>(fas: Immutable<A[][]>): Immutable<A[]> => {
+    // Simplified implementation - in practice would need proper applicative
+    return Object.freeze(fas.flat()) as Immutable<A[]>;
+  },
+  traverse: <F extends Kind1, A, B>(
+    F: Applicative<F>,
+    fa: Immutable<A[]>,
+    f: (a: A) => Apply<F, [B]>
+  ): Apply<F, [Immutable<B[]>]> => {
+    // Simplified implementation - in practice would need proper applicative
+    return F.of(Object.freeze(fa.map(a => (f(a) as any).value)) as Immutable<B[]>) as any;
   }
 };
 
 /**
- * Immutable GADT wrapper
- * Makes GADT payloads immutable
+ * Immutable Foldable instance for arrays
  */
-export type ImmutableGADT<Tag extends string, Payload> = {
-  readonly tag: Tag;
-  readonly payload: DeepImmutable<Payload>;
+export const ImmutableArrayFoldable: Foldable<ArrayK> = {
+  reduce: <A, B>(fa: Immutable<A[]>, f: (b: B, a: A) => B, b: B): B => {
+    return fa.reduce(f, b);
+  },
+  foldMap: <M, A>(M: any, fa: Immutable<A[]>, f: (a: A) => M): M => {
+    return fa.reduce((acc, a) => M.concat(acc, f(a)), M.empty());
+  }
 };
 
-/**
- * Immutable Expr GADT
- */
-export type ImmutableExpr<A> =
-  | ImmutableGADT<'Const', { value: A }>
-  | ImmutableGADT<'Add', { left: ImmutableExpr<number>; right: ImmutableExpr<number> }>
-  | ImmutableGADT<'If', { cond: ImmutableExpr<boolean>; then: ImmutableExpr<A>; else: ImmutableExpr<A> }>
-  | ImmutableGADT<'Var', { name: string }>
-  | ImmutableGADT<'Let', { name: string; value: ImmutableExpr<A>; body: ImmutableExpr<A> }>;
-
-/**
- * Immutable Maybe GADT
- */
-export type ImmutableMaybe<A> =
-  | ImmutableGADT<'Just', { value: A }>
-  | ImmutableGADT<'Nothing', {}>;
-
-/**
- * Immutable Either GADT
- */
-export type ImmutableEither<L, R> =
-  | ImmutableGADT<'Left', { value: L }>
-  | ImmutableGADT<'Right', { value: R }>;
-
-/**
- * Immutable Result GADT
- */
-export type ImmutableResult<A, E> =
-  | ImmutableGADT<'Ok', { value: A }>
-  | ImmutableGADT<'Err', { error: E }>;
-
 // ============================================================================
-// Part 4: Examples & Tests
+// Part 7: Readonly Pattern Matching
 // ============================================================================
 
 /**
- * Example: Deep freezing and safe updates
- */
-export function exampleDeepFreezing(): void {
-  console.log('=== Deep Freezing Example ===');
-  
-  const mutableObj = {
-    name: 'John',
-    age: 30,
-    hobbies: ['reading', 'coding'],
-    address: {
-      street: '123 Main St',
-      city: 'Anytown'
-    }
-  };
-  
-  const immutableObj = freezeDeep(mutableObj);
-  console.log('Original object:', mutableObj);
-  console.log('Immutable object:', immutableObj);
-  
-  // This would cause a runtime error if we tried to modify immutableObj
-  // immutableObj.name = 'Jane'; // TypeError: Cannot assign to read-only property
-  
-  // Safe update using our helper
-  const updatedObj = updateImmutable(immutableObj, 'name', () => 'Jane');
-  console.log('Updated object:', updatedObj);
-  console.log('Original unchanged:', immutableObj);
-}
-
-/**
- * Example: Tuples retaining type-level lengths after immutable updates
- */
-export function exampleImmutableTuples(): void {
-  console.log('\n=== Immutable Tuples Example ===');
-  
-  const tuple: [string, number, boolean] = ['hello', 42, true];
-  const immutableTuple: ImmutableTuple<[string, number, boolean]> = freezeDeep(tuple);
-  
-  console.log('Original tuple:', tuple);
-  console.log('Immutable tuple:', immutableTuple);
-  
-  // Type-safe update that preserves tuple structure
-  const updatedTuple = updateImmutable(immutableTuple, 1, (n) => n * 2);
-  console.log('Updated tuple:', updatedTuple);
-  
-  // TypeScript knows this is still a tuple of length 3
-  const [first, second, third] = updatedTuple;
-  console.log('Destructured:', first, second, third);
-}
-
-/**
- * Example: Immutable arrays used in map/chain without breaking immutability
- */
-export function exampleImmutableArrays(): void {
-  console.log('\n=== Immutable Arrays Example ===');
-  
-  const numbers: ImmutableArray<number> = [1, 2, 3, 4, 5];
-  console.log('Original array:', numbers);
-  
-  // Using FP typeclass operations
-  const doubled = ImmutableArrayFunctor.map(numbers, x => x * 2);
-  console.log('Doubled (Functor):', doubled);
-  
-  const filtered = ImmutableArrayMonad.chain(numbers, x => 
-    x % 2 === 0 ? [x] : []
-  );
-  console.log('Even numbers (Monad):', filtered);
-  
-  // Safe array operations
-  const pushed = pushImmutable(numbers, 6, 7);
-  console.log('Pushed:', pushed);
-  
-  const spliced = spliceImmutable(numbers, 1, 2, 10, 11);
-  console.log('Spliced:', spliced);
-  
-  // Original array unchanged
-  console.log('Original unchanged:', numbers);
-}
-
-/**
- * Example: Compile-time errors for mutation attempts
- */
-export function exampleCompileTimeErrors(): void {
-  console.log('\n=== Compile-Time Error Examples ===');
-  
-  const immutableObj: DeepImmutable<{ name: string; age: number }> = {
-    name: 'John',
-    age: 30
-  };
-  
-  // These would cause compile-time errors:
-  // immutableObj.name = 'Jane'; // Error: Cannot assign to 'name' because it is a read-only property
-  // immutableObj.age = 31; // Error: Cannot assign to 'age' because it is a read-only property
-  
-  const immutableArray: ImmutableArray<number> = [1, 2, 3];
-  
-  // These would cause compile-time errors:
-  // immutableArray.push(4); // Error: Property 'push' does not exist on type 'readonly number[]'
-  // immutableArray[0] = 10; // Error: Cannot assign to '0' because it is a read-only property
-  
-  console.log('All compile-time checks passed!');
-}
-
-/**
- * Example: Integration with GADTs
- */
-export function exampleGADTIntegration(): void {
-  console.log('\n=== GADT Integration Example ===');
-  
-  const immutableExpr: ImmutableExpr<number> = {
-    tag: 'Add',
-    payload: {
-      left: { tag: 'Const', payload: { value: 5 } },
-      right: { tag: 'Const', payload: { value: 3 } }
-    }
-  };
-  
-  console.log('Immutable expression:', immutableExpr);
-  
-  // Pattern matching works with immutable GADTs
-  const result = pmatch(immutableExpr)
-    .with('Const', ({ value }) => value)
-    .with('Add', ({ left, right }) => {
-      const leftVal = pmatch(left)
-        .with('Const', ({ value }) => value)
-        .with('Add', () => 0)
-        .with('If', () => 0)
-        .with('Var', () => 0)
-        .with('Let', () => 0)
-        .exhaustive();
-      
-      const rightVal = pmatch(right)
-        .with('Const', ({ value }) => value)
-        .with('Add', () => 0)
-        .with('If', () => 0)
-        .with('Var', () => 0)
-        .with('Let', () => 0)
-        .exhaustive();
-      
-      return leftVal + rightVal;
-    })
-    .with('If', () => 0)
-    .with('Var', () => 0)
-    .with('Let', () => 0)
-    .exhaustive();
-  
-  console.log('Evaluated result:', result);
-}
-
-/**
- * Example: Structural sharing demonstration
- */
-export function exampleStructuralSharing(): void {
-  console.log('\n=== Structural Sharing Example ===');
-  
-  const original = {
-    user: {
-      name: 'John',
-      preferences: {
-        theme: 'dark',
-        language: 'en'
-      }
-    },
-    settings: {
-      notifications: true
-    }
-  };
-  
-  const immutable = freezeDeep(original);
-  
-  // Update only the theme - other parts are shared
-  const updated = setInImmutable(immutable, ['user', 'preferences', 'theme'], 'light');
-  
-  console.log('Original theme:', immutable.user.preferences.theme);
-  console.log('Updated theme:', updated.user.preferences.theme);
-  
-  // Verify structural sharing - unchanged parts should be the same reference
-  console.log('Settings shared:', immutable.settings === updated.settings);
-  console.log('User name shared:', immutable.user.name === updated.user.name);
-}
-
-// ============================================================================
-// Extra Credit: Persistent Data Structure Wrappers
-// ============================================================================
-
-/**
- * Immutable List with efficient structural sharing
- */
-export class ImmutableList<T> {
-  private constructor(private readonly data: readonly T[]) {}
-  
-  static empty<T>(): ImmutableList<T> {
-    return new ImmutableList([]);
-  }
-  
-  static from<T>(items: readonly T[]): ImmutableList<T> {
-    return new ImmutableList([...items]);
-  }
-  
-  get length(): number {
-    return this.data.length;
-  }
-  
-  get(index: number): T | undefined {
-    return this.data[index];
-  }
-  
-  push(...items: T[]): ImmutableList<T> {
-    return new ImmutableList([...this.data, ...items]);
-  }
-  
-  pop(): [ImmutableList<T>, T | undefined] {
-    if (this.data.length === 0) {
-      return [this, undefined];
-    }
-    const newData = this.data.slice(0, -1);
-    return [new ImmutableList(newData), this.data[this.data.length - 1]];
-  }
-  
-  unshift(...items: T[]): ImmutableList<T> {
-    return new ImmutableList([...items, ...this.data]);
-  }
-  
-  shift(): [ImmutableList<T>, T | undefined] {
-    if (this.data.length === 0) {
-      return [this, undefined];
-    }
-    const newData = this.data.slice(1);
-    return [new ImmutableList(newData), this.data[0]];
-  }
-  
-  set(index: number, value: T): ImmutableList<T> {
-    if (index < 0 || index >= this.data.length) {
-      throw new Error(`Index ${index} out of bounds`);
-    }
-    const newData = [...this.data];
-    newData[index] = value;
-    return new ImmutableList(newData);
-  }
-  
-  map<U>(fn: (item: T, index: number) => U): ImmutableList<U> {
-    return new ImmutableList(this.data.map(fn));
-  }
-  
-  filter(fn: (item: T, index: number) => boolean): ImmutableList<T> {
-    return new ImmutableList(this.data.filter(fn));
-  }
-  
-  reduce<U>(fn: (acc: U, item: T, index: number) => U, initial: U): U {
-    return this.data.reduce(fn, initial);
-  }
-  
-  toArray(): readonly T[] {
-    return this.data;
-  }
-  
-  [Symbol.iterator](): Iterator<T> {
-    return this.data[Symbol.iterator]();
-  }
-}
-
-/**
- * Immutable Map with efficient structural sharing
- */
-export class ImmutableMap<K, V> {
-  private constructor(private readonly data: ReadonlyMap<K, V>) {}
-  
-  static empty<K, V>(): ImmutableMap<K, V> {
-    return new ImmutableMap(new Map());
-  }
-  
-  static from<K, V>(entries: readonly [K, V][]): ImmutableMap<K, V> {
-    return new ImmutableMap(new Map(entries));
-  }
-  
-  get(key: K): V | undefined {
-    return this.data.get(key);
-  }
-  
-  has(key: K): boolean {
-    return this.data.has(key);
-  }
-  
-  set(key: K, value: V): ImmutableMap<K, V> {
-    const newData = new Map(this.data);
-    newData.set(key, value);
-    return new ImmutableMap(newData);
-  }
-  
-  delete(key: K): ImmutableMap<K, V> {
-    const newData = new Map(this.data);
-    newData.delete(key);
-    return new ImmutableMap(newData);
-  }
-  
-  keys(): IterableIterator<K> {
-    return this.data.keys();
-  }
-  
-  values(): IterableIterator<V> {
-    return this.data.values();
-  }
-  
-  entries(): IterableIterator<[K, V]> {
-    return this.data.entries();
-  }
-  
-  size(): number {
-    return this.data.size;
-  }
-  
-  map<U>(fn: (value: V, key: K) => U): ImmutableMap<K, U> {
-    const newData = new Map<K, U>();
-    for (const [key, value] of this.data) {
-      newData.set(key, fn(value, key));
-    }
-    return new ImmutableMap(newData);
-  }
-  
-  filter(fn: (value: V, key: K) => boolean): ImmutableMap<K, V> {
-    const newData = new Map<K, V>();
-    for (const [key, value] of this.data) {
-      if (fn(value, key)) {
-        newData.set(key, value);
-      }
-    }
-    return new ImmutableMap(newData);
-  }
-  
-  toMap(): ReadonlyMap<K, V> {
-    return this.data;
-  }
-  
-  [Symbol.iterator](): Iterator<[K, V]> {
-    return this.data[Symbol.iterator]();
-  }
-}
-
-/**
- * Immutable Set with efficient structural sharing
- */
-export class ImmutableSet<T> {
-  private constructor(private readonly data: ReadonlySet<T>) {}
-  
-  static empty<T>(): ImmutableSet<T> {
-    return new ImmutableSet(new Set());
-  }
-  
-  static from<T>(items: readonly T[]): ImmutableSet<T> {
-    return new ImmutableSet(new Set(items));
-  }
-  
-  has(item: T): boolean {
-    return this.data.has(item);
-  }
-  
-  add(item: T): ImmutableSet<T> {
-    const newData = new Set(this.data);
-    newData.add(item);
-    return new ImmutableSet(newData);
-  }
-  
-  delete(item: T): ImmutableSet<T> {
-    const newData = new Set(this.data);
-    newData.delete(item);
-    return new ImmutableSet(newData);
-  }
-  
-  union(other: ImmutableSet<T>): ImmutableSet<T> {
-    const newData = new Set(this.data);
-    for (const item of other.data) {
-      newData.add(item);
-    }
-    return new ImmutableSet(newData);
-  }
-  
-  intersection(other: ImmutableSet<T>): ImmutableSet<T> {
-    const newData = new Set<T>();
-    for (const item of this.data) {
-      if (other.has(item)) {
-        newData.add(item);
-      }
-    }
-    return new ImmutableSet(newData);
-  }
-  
-  difference(other: ImmutableSet<T>): ImmutableSet<T> {
-    const newData = new Set<T>();
-    for (const item of this.data) {
-      if (!other.has(item)) {
-        newData.add(item);
-      }
-    }
-    return new ImmutableSet(newData);
-  }
-  
-  size(): number {
-    return this.data.size;
-  }
-  
-  map<U>(fn: (item: T) => U): ImmutableSet<U> {
-    const newData = new Set<U>();
-    for (const item of this.data) {
-      newData.add(fn(item));
-    }
-    return new ImmutableSet(newData);
-  }
-  
-  filter(fn: (item: T) => boolean): ImmutableSet<T> {
-    const newData = new Set<T>();
-    for (const item of this.data) {
-      if (fn(item)) {
-        newData.add(item);
-      }
-    }
-    return new ImmutableSet(newData);
-  }
-  
-  toSet(): ReadonlySet<T> {
-    return this.data;
-  }
-  
-  [Symbol.iterator](): Iterator<T> {
-    return this.data[Symbol.iterator]();
-  }
-}
-
-// ============================================================================
-// Test Functions
-// ============================================================================
-
-/**
- * Run all immutable core tests
- */
-export function runImmutableCoreTests(): void {
-  console.log('🚀 Running Immutable Core Tests\n');
-  
-  exampleDeepFreezing();
-  exampleImmutableTuples();
-  exampleImmutableArrays();
-  exampleCompileTimeErrors();
-  exampleGADTIntegration();
-  exampleStructuralSharing();
-  
-  console.log('\n✅ All Immutable Core tests completed successfully!');
-  console.log('\n📋 Summary:');
-  console.log('- ✅ Type-level immutability utilities implemented');
-  console.log('- ✅ Runtime helpers for safe updates implemented');
-  console.log('- ✅ FP ecosystem integration completed');
-  console.log('- ✅ Structural sharing for efficient operations');
-  console.log('- ✅ Persistent data structure wrappers');
-  console.log('- ✅ Compile-time safety for immutable operations');
-  console.log('- ✅ Integration with GADTs and pattern matching');
-}
-
-// ============================================================================
-// Laws and Properties
-// ============================================================================
-
-/**
- * Immutable Core Laws:
+ * Pattern matching for immutable arrays that preserves immutability
  * 
- * 1. Immutability Preservation: All operations return new immutable copies
- * 2. Structural Sharing: Unchanged parts of the structure are reused
- * 3. Type Safety: Compile-time prevention of mutation attempts
- * 4. FP Integration: Works seamlessly with typeclasses and HKTs
- * 5. GADT Compatibility: Immutable GADTs work with pattern matching
+ * @example
+ * ```typescript
+ * const arr = immutableArray(1, 2, 3);
+ * const result = matchImmutableArray(arr, {
+ *   Empty: () => 0,
+ *   NonEmpty: ([head, ...tail]) => head // tail remains immutable
+ * });
+ * ```
+ */
+export function matchImmutableArray<T, R>(
+  arr: Immutable<T[]>,
+  patterns: {
+    Empty: () => R;
+    NonEmpty: (head: T, tail: Immutable<T[]>) => R;
+  }
+): R {
+  if (arr.length === 0) {
+    return patterns.Empty();
+  } else {
+    const [head, ...tail] = arr;
+    return patterns.NonEmpty(head, Object.freeze(tail) as Immutable<T[]>);
+  }
+}
+
+/**
+ * Pattern matching for immutable objects that preserves immutability
  * 
- * Runtime Laws:
+ * @example
+ * ```typescript
+ * const obj = immutableObject({ a: 1, b: 2 });
+ * const result = matchImmutableObject(obj, {
+ *   HasA: (a, rest) => a, // rest remains immutable
+ *   NoA: (rest) => 0
+ * });
+ * ```
+ */
+export function matchImmutableObject<T extends object, R>(
+  obj: Immutable<T>,
+  patterns: {
+    HasA: (a: T['a'], rest: Immutable<Omit<T, 'a'>>) => R;
+    NoA: (rest: Immutable<T>) => R;
+  }
+): R {
+  if ('a' in obj) {
+    const { a, ...rest } = obj;
+    return patterns.HasA(a as T['a'], Object.freeze(rest) as Immutable<Omit<T, 'a'>>);
+  } else {
+    return patterns.NoA(obj);
+  }
+}
+
+/**
+ * Pattern matching for immutable tuples that preserves immutability
  * 
- * 1. Freeze Law: freezeDeep(obj) === freezeDeep(freezeDeep(obj))
- * 2. Update Law: updateImmutable(obj, key, id) === obj
- * 3. Set Law: setInImmutable(obj, path, value) creates new object with updated value
- * 4. Array Law: pushImmutable(arr, ...items) returns new array with items added
- * 5. Structural Sharing Law: Unchanged parts maintain reference equality
+ * @example
+ * ```typescript
+ * const tuple = immutableTuple(1, "hello", true);
+ * const result = matchImmutableTuple(tuple, {
+ *   Single: (item) => item,
+ *   Multiple: (first, rest) => first // rest remains immutable
+ * });
+ * ```
+ */
+export function matchImmutableTuple<T extends readonly any[], R>(
+  tuple: Immutable<T>,
+  patterns: {
+    Single: (item: T[0]) => R;
+    Multiple: (first: T[0], rest: Immutable<Tail<T>>) => R;
+  }
+): R {
+  if (tuple.length === 1) {
+    return patterns.Single(tuple[0]);
+  } else {
+    const [first, ...rest] = tuple;
+    return patterns.Multiple(first, Object.freeze(rest) as Immutable<Tail<T>>);
+  }
+}
+
+// Helper type for tuple tail
+type Tail<T extends readonly any[]> = T extends readonly [any, ...infer Rest] ? Rest : never;
+
+// ============================================================================
+// Part 8: Utility Types and Functions
+// ============================================================================
+
+/**
+ * Convert a mutable type to immutable
+ */
+export type ToImmutable<T> = Immutable<T>;
+
+/**
+ * Convert an immutable type back to mutable (use with caution)
+ */
+export type ToMutable<T> = T extends Immutable<infer U> ? U : T;
+
+/**
+ * Check if two immutable types are equal
+ */
+export type ImmutableEqual<T, U> = Immutable<T> extends Immutable<U>
+  ? Immutable<U> extends Immutable<T>
+    ? true
+    : false
+  : false;
+
+/**
+ * Create an immutable copy of a value
+ */
+export function toImmutable<T>(value: T): Immutable<T> {
+  if (Array.isArray(value)) {
+    return immutableArray(...value);
+  } else if (value && typeof value === 'object') {
+    return immutableObject(value);
+  } else {
+    return value as Immutable<T>;
+  }
+}
+
+/**
+ * Create a mutable copy of an immutable value (use with caution)
+ */
+export function toMutable<T>(value: Immutable<T>): T {
+  if (Array.isArray(value)) {
+    return [...value] as T;
+  } else if (value && typeof value === 'object') {
+    return { ...value } as T;
+  } else {
+    return value as T;
+  }
+}
+
+/**
+ * Check if a value is immutable at runtime
+ */
+export function isImmutable<T>(value: T): value is Immutable<T> {
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return true;
+  }
+  
+  return isDeeplyFrozen(value);
+}
+
+/**
+ * Create an immutable value with purity tracking
+ */
+export function createImmutable<T>(
+  value: T,
+  effect: EffectTag = 'Pure'
+): ImmutableWithPurity<T> {
+  return createImmutableWithPurity(value, effect);
+}
+
+/**
+ * Extract the value from an immutable with purity
+ */
+export function extractImmutableValue<T, P extends EffectTag>(
+  immutable: ImmutableWithPurity<T, P>
+): Immutable<T> {
+  return immutable.value;
+}
+
+/**
+ * Extract the effect from an immutable with purity
+ */
+export function extractImmutableEffect<T, P extends EffectTag>(
+  immutable: ImmutableWithPurity<T, P>
+): P {
+  return immutable.effect;
+}
+
+// ============================================================================
+// Part 9: Laws Documentation
+// ============================================================================
+
+/**
+ * Immutability Laws:
  * 
- * Type-Level Laws:
+ * 1. **Immutability Law**: Immutable values cannot be mutated
+ *    - No mutation methods available on immutable arrays
+ *    - Object properties cannot be reassigned
+ *    - Tuple elements cannot be modified
  * 
- * 1. Immutability Law: Immutable<T> makes all properties readonly
- * 2. Deep Immutability Law: DeepImmutable<T> recursively makes all properties readonly
- * 3. Tuple Preservation Law: ImmutableTuple<T> preserves tuple structure
- * 4. Conditional Law: ConditionalImmutable<T, true> === DeepImmutable<T>
- * 5. FP Law: ImmutableArrayK works with Functor, Applicative, Monad instances
+ * 2. **Identity Law**: Immutable values maintain identity under operations
+ *    - updateImmutableArray(arr, i, v) !== arr
+ *    - updateImmutableObject(obj, k, v) !== obj
+ *    - updateImmutableTuple(tuple, i, v) !== tuple
+ * 
+ * 3. **Purity Law**: Immutable values default to Pure effect
+ *    - EffectOf<Immutable<T>> = "Pure"
+ *    - IsImmutablePure<Immutable<T>> = true
+ * 
+ * 4. **Composition Law**: Immutable operations compose
+ *    - updateImmutableArray(updateImmutableArray(arr, i, v1), j, v2) = updateImmutableArray(arr, i, v1, j, v2)
+ *    - updateImmutableObject(updateImmutableObject(obj, k1, v1), k2, v2) = updateImmutableObject(obj, k1, v1, k2, v2)
+ * 
+ * 5. **Type Safety Law**: Type-level immutability is enforced
+ *    - IsImmutable<Immutable<T>> = true
+ *    - IsImmutable<T> = false (for mutable T)
+ * 
+ * 6. **Deep Freeze Law**: Deep freeze makes all nested structures immutable
+ *    - isDeeplyFrozen(deepFreeze(obj)) = true
+ *    - All nested objects and arrays are also frozen
+ * 
+ * 7. **Pattern Matching Law**: Pattern matching preserves immutability
+ *    - matchImmutableArray preserves tail immutability
+ *    - matchImmutableObject preserves rest immutability
+ *    - matchImmutableTuple preserves rest immutability
+ * 
+ * 8. **Typeclass Law**: Immutable typeclasses respect immutability
+ *    - ImmutableArrayFunctor.map returns immutable array
+ *    - ImmutableArrayMonad.chain returns immutable array
+ *    - All operations preserve immutability guarantees
  */ 

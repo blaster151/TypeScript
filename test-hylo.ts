@@ -187,7 +187,7 @@ export function testHKTIntegration(): void {
   
   // Test HKT hylo with Maybe
   const unfoldMaybe: HKTUnfold<MaybeK, number, 'Pure'> = (n) =>
-    n > 0 ? Maybe.Just(n) : Maybe.Nothing();
+    n > 0 ? Just(n) : Nothing();
 
   const foldMaybe: HKTFold<MaybeK, number, number, 'Pure'> = (maybe) =>
     maybe.isJust ? maybe.value : 0;

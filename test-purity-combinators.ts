@@ -101,7 +101,7 @@ const ArrayMonad: Monad<ArrayK> = {
  */
 const EitherBifunctor: Bifunctor<EitherK> = {
   bimap: <A, B, C, D>(fab: Either<A, B>, f: (a: A) => C, g: (b: B) => D): Either<C, D> => {
-    return fab.isLeft ? Either.Left(f(fab.value)) : Either.Right(g(fab.value));
+    return fab.isLeft ? Left(f(fab.value)) : Right(g(fab.value));
   }
 };
 
@@ -338,7 +338,7 @@ export function testPurityAwareBifunctorCombinators(): void {
   console.log('\n=== Testing Purity-Aware Bifunctor Combinators ===');
   
   // Test bimap
-  const either = Either.Right(42);
+  const either = Right(42);
   const bimapResult = bimap(EitherBifunctor, either, (x: number) => x.toString(), (x: number) => x * 2);
   const bimapValue = extractValue(bimapResult);
   const bimapEffect = extractEffect(bimapResult);

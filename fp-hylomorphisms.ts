@@ -409,11 +409,11 @@ export function processResultHylo(seed: number): string {
   // Unfold coalgebra: generate Result from seed
   const generateCoalgebra = (s: number): Result<number, string> => {
     if (s < 0) {
-      return Result.Err('Negative number');
+      return Err('Negative number');
     } else if (s > 100) {
-      return Result.Err('Too large');
+      return Err('Too large');
     } else {
-      return Result.Ok(s);
+      return Ok(s);
     }
   };
   
@@ -507,13 +507,13 @@ export function createValidationHylo(): (value: number) => string {
   // Unfold coalgebra: generate validation result
   const validationCoalgebra = (value: number): Result<number, string> => {
     if (value < 0) {
-      return Result.Err('Negative value');
+      return Err('Negative value');
     } else if (value > 100) {
-      return Result.Err('Value too large');
+      return Err('Value too large');
     } else if (value === 0) {
-      return Result.Err('Zero is not allowed');
+      return Err('Zero is not allowed');
     } else {
-      return Result.Ok(value);
+      return Ok(value);
     }
   };
   

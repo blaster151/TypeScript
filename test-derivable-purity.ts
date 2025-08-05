@@ -120,7 +120,7 @@ const IOMonad: Monad<any> = {
  */
 const EitherBifunctor: Bifunctor<EitherK> = {
   bimap: <A, B, C, D>(fab: Either<A, B>, f: (a: A) => C, g: (b: B) => D): Either<C, D> => {
-    return fab.isLeft ? Either.Left(f(fab.value)) : Either.Right(g(fab.value));
+    return fab.isLeft ? Left(f(fab.value)) : Right(g(fab.value));
   }
 };
 
@@ -315,7 +315,7 @@ export function testPurityAwareBifunctor(): void {
   const pureEitherBifunctor = derivePurityAwareBifunctor(EitherBifunctor, { enableRuntimeMarkers: true });
   
   // Test bimap
-  const either = Either.Right(42);
+  const either = Right(42);
   const bimapResult = pureEitherBifunctor.bimap(
     either, 
     (x: number) => x.toString(), 

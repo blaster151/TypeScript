@@ -245,7 +245,7 @@ export function testFunctionPurityAnalysis(): void {
   // Test pure functions
   const pureFunction = (x: number) => x * 2;
   const pureArrayFunction = (x: number) => [x * 2];
-  const pureMaybeFunction = (x: number) => Maybe.Just(x * 2);
+  const pureMaybeFunction = (x: number) => Just(x * 2);
   
   // Test impure functions
   const impureIOFunction = (x: number): IOMock<number> => ({

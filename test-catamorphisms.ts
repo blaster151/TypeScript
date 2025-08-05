@@ -312,8 +312,8 @@ export function testEitherCatamorphism(): void {
 export function testResultCatamorphism(): void {
   console.log('\n=== Testing Result Catamorphism ===');
   
-  const success = Result.Ok(42);
-  const failure = Result.Err('Something went wrong');
+  const success = Ok(42);
+  const failure = Err('Something went wrong');
   
   const successAlgebra = resultSuccessAlgebra<number, string>(
     error => parseInt(error) || 0
@@ -450,8 +450,8 @@ export function testRealWorldUseCases(): void {
       Err: ({ error }) => `Failed to process: ${error}`
     });
   
-  const successResult = Result.Ok(21);
-  const failureResult = Result.Err('Invalid input');
+  const successResult = Ok(21);
+  const failureResult = Err('Invalid input');
   
   console.log('Result processing success:', processResult(successResult)); // "Successfully processed: 42"
   console.log('Result processing failure:', processResult(failureResult)); // "Failed to process: Invalid input"
@@ -486,10 +486,10 @@ export function testPerformanceAndIntegration(): void {
   
   // Test with Result GADT
   const results: Array<Result<number, string>> = [
-    Result.Ok(1),
-    Result.Ok(2),
-    Result.Err('error'),
-    Result.Ok(4)
+    Ok(1),
+    Ok(2),
+    Err('error'),
+    Ok(4)
   ];
   
   // Use catamorphism to extract values or handle errors

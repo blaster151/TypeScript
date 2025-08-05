@@ -311,8 +311,8 @@ export function testExprGADTWithKind(): void {
 export function testResultIntegration(): void {
   console.log('\n=== Testing Result GADT Integration ===');
   
-  const success = Result.Ok(42);
-  const failure = Result.Err('Something went wrong');
+  const success = Ok(42);
+  const failure = Err('Something went wrong');
   
   // Test auto-generated matcher for Result
   const resultMatcher = createPmatchBuilder<Result<any, any>, string>({
@@ -331,7 +331,7 @@ export function testResultIntegration(): void {
   
   const chained = derivedMonad.chain(
     success,
-    x => x > 40 ? Result.Ok(x * 2) : Result.Err('Too small')
+    x => x > 40 ? Ok(x * 2) : Err('Too small')
   );
   
   const chainedResult = resultMatcher(chained).exhaustive();
@@ -420,10 +420,10 @@ export function testPerformanceAndIntegration(): void {
   
   // Test with Result GADT
   const results: Array<Result<number, string>> = [
-    Result.Ok(1),
-    Result.Ok(2),
-    Result.Err('error'),
-    Result.Ok(4)
+    Ok(1),
+    Ok(2),
+    Err('error'),
+    Ok(4)
   ];
   
   // Filter out errors and get successes

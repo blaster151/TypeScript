@@ -332,11 +332,11 @@ export function testResultAnamorphism(): void {
     if (seed < 0) {
       return null; // Terminate for negative numbers
     } else if (seed === 0) {
-      return Result.Err('Zero is invalid');
+      return Err('Zero is invalid');
     } else if (seed > 50) {
-      return Result.Err('Too large');
+      return Err('Too large');
     } else {
-      return Result.Ok(`Valid: ${seed}`);
+      return Ok(`Valid: ${seed}`);
     }
   };
   
@@ -468,13 +468,13 @@ export function testRealWorldUseCases(): void {
     const coalg: UnfoldResult<number, string, { value: number; rules: Array<{ name: string; validate: (n: number) => boolean }> }> = 
       ({ value, rules }) => {
         if (rules.length === 0) {
-          return Result.Ok(value);
+          return Ok(value);
         } else {
           const [rule, ...remainingRules] = rules;
           if (!rule.validate(value)) {
-            return Result.Err(`Failed ${rule.name} validation`);
+            return Err(`Failed ${rule.name} validation`);
           } else {
-            return Result.Ok(value); // Simplified - would continue with remaining rules
+            return Ok(value); // Simplified - would continue with remaining rules
           }
         }
       };

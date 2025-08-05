@@ -254,7 +254,7 @@ export function testResultIntegration(): void {
   console.log('\n=== Testing Result Integration ===');
   
   // Test cataResult
-  const resultValue = Result.Ok(42);
+  const resultValue = Ok(42);
   const resultAlgebra: FoldResult<number, string, string> = {
     Ok: ({ value }) => `Valid: ${value}`,
     Err: ({ error }) => `Invalid: ${error}`
@@ -266,11 +266,11 @@ export function testResultIntegration(): void {
   // Test anaResult
   const resultCoalgebra: UnfoldResult<number, string, number> = (seed: number) => {
     if (seed < 0) {
-      return Result.Err('Negative number');
+      return Err('Negative number');
     } else if (seed > 100) {
-      return Result.Err('Too large');
+      return Err('Too large');
     } else {
-      return Result.Ok(seed);
+      return Ok(seed);
     }
   };
   
@@ -283,7 +283,7 @@ export function testResultIntegration(): void {
       Ok: ({ value }) => `Valid: ${value}`,
       Err: ({ error }) => `Invalid: ${error}`
     }),
-    (seed) => seed < 0 ? Result.Err('Negative') : Result.Ok(seed),
+    (seed) => seed < 0 ? Err('Negative') : Ok(seed),
     25
   );
   
@@ -398,7 +398,7 @@ export function testDerivableInstancesIntegration(): void {
   const resultSchemes = deriveResultRecursionSchemes<number, string, number, string>();
   
   const resultCoalgebra: UnfoldResult<number, string, number> = (seed) => 
-    seed < 0 ? Result.Err('Negative') : Result.Ok(seed);
+    seed < 0 ? Err('Negative') : Ok(seed);
   
   const resultAnaResult = resultSchemes.ana(resultCoalgebra, 25);
   console.log('Result derivable ana result:', resultAnaResult); // Ok(25)
@@ -478,7 +478,7 @@ export function testTypeParameterAlignment(): void {
       Ok: ({ value }) => `Valid: ${value}`,
       Err: ({ error }) => `Invalid: ${error}`
     }),
-    (seed) => seed > 0 ? Result.Ok(seed) : Result.Err('Negative'),
+    (seed) => seed > 0 ? Ok(seed) : Err('Negative'),
     42
   );
   

@@ -338,7 +338,7 @@ export function testResultHylomorphism(): void {
       Ok: ({ value }) => `Valid: ${value}`,
       Err: ({ error }) => `Invalid: ${error}`
     }),
-    (seed) => seed < 0 ? Result.Err('Negative') : Result.Ok(seed)
+    (seed) => seed < 0 ? Err('Negative') : Ok(seed)
   );
   
   const result1 = processResult(5);
@@ -353,7 +353,7 @@ export function testResultHylomorphism(): void {
       Ok: ({ value }) => value * 2,
       Err: ({ error }) => error.length
     }),
-    (seed) => seed > 100 ? Result.Err('Too large') : Result.Ok(seed)
+    (seed) => seed > 100 ? Err('Too large') : Ok(seed)
   );
   
   const customResult1 = customResult(50);
@@ -583,11 +583,11 @@ export function testRealWorldUseCases(): void {
     }),
     (data: { value: number; validate: boolean }) => {
       if (!data.validate) {
-        return Result.Err('Invalid data');
+        return Err('Invalid data');
       } else if (data.value < 0) {
-        return Result.Err('Negative value');
+        return Err('Negative value');
       } else {
-        return Result.Ok(data.value);
+        return Ok(data.value);
       }
     },
     { value: 25, validate: true }

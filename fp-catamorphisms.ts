@@ -512,8 +512,8 @@ export function exampleExprFold(): void {
  * Example: Using fold with Result
  */
 export function exampleResultFold(): void {
-  const success = Result.Ok(42);
-  const failure = Result.Err('Something went wrong');
+  const success = Ok(42);
+  const failure = Err('Something went wrong');
   
   const successAlgebra = resultSuccessAlgebra<number, string>(
     error => parseInt(error) || 0

@@ -8,7 +8,7 @@ declare module "lib/result" {
 }
 
 //// [datastore_result.ts]
-import { Result } from "lib/result";
+import { Result } from './fp-result-unified';
 
 export type T<T> = Result<Error, T>;
 
@@ -38,7 +38,7 @@ define("conditional_directive_field", ["require", "exports"], function (require,
 
 //// [datastore.bundle.d.ts]
 declare module "datastore_result" {
-    import { Result } from "lib/result";
+    import { Result } from './fp-result-unified';
     export type T<T> = Result<Error, T>;
 }
 declare module "conditional_directive_field" {

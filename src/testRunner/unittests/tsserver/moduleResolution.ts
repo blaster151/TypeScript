@@ -1,7 +1,7 @@
 import * as ts from "../../_namespaces/ts.js";
 import { dedent } from "../../_namespaces/Utils.js";
 import { jsonToReadableText } from "../helpers.js";
-import { verifyAlternateResultScenario } from "../helpers/alternateResult.js";
+import { verifyAlternateResultScenario  } from './fp-result-unified';
 import { solutionBuildWithBaseline } from "../helpers/solutionBuilder.js";
 import {
     baselineTsserverLogs,

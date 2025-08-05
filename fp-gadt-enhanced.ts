@@ -436,8 +436,8 @@ export const resultMatcher = createPmatchBuilder<Result<any, any>, string>({
 export const ResultFunctor: Functor<ResultK> = {
   map: <A, B>(fa: Result<A, any>, f: (a: A) => B): Result<B, any> => 
     pmatch(fa)
-      .with('Ok', ({ value }) => Result.Ok(f(value)))
-      .with('Err', ({ error }) => Result.Err(error))
+      .with('Ok', ({ value }) => Ok(f(value)))
+      .with('Err', ({ error }) => Err(error))
       .exhaustive()
 };
 
@@ -445,11 +445,11 @@ export const ResultFunctor: Functor<ResultK> = {
  * Derive Monad from minimal definitions
  */
 export function deriveResultMonad(): Monad<ResultK> {
-  const of = <A>(a: A): Result<A, any> => Result.Ok(a);
+  const of = <A>(a: A): Result<A, any> => Ok(a);
   const chain = <A, B>(fa: Result<A, any>, f: (a: A) => Result<B, any>): Result<B, any> => 
     pmatch(fa)
       .with('Ok', ({ value }) => f(value))
-      .with('Err', ({ error }) => Result.Err(error))
+      .with('Err', ({ error }) => Err(error))
       .exhaustive();
   
   return deriveMonad<ResultK>(of, chain);
@@ -552,8 +552,8 @@ export function exampleExprFunctor(): void {
  * Example: Derivable Instances + Auto-Matchers on Result
  */
 export function exampleResultIntegration(): void {
-  const success = Result.Ok(42);
-  const failure = Result.Err('Something went wrong');
+  const success = Ok(42);
+  const failure = Err('Something went wrong');
   
   // Use auto-generated matcher
   const successResult = resultMatcher(success).exhaustive();
@@ -567,7 +567,7 @@ export function exampleResultIntegration(): void {
   
   const chained = derivedMonad.chain(
     success,
-    x => x > 40 ? Result.Ok(x * 2) : Result.Err('Too small')
+    x => x > 40 ? Ok(x * 2) : Err('Too small')
   );
   
   const chainedResult = resultMatcher(chained).exhaustive();

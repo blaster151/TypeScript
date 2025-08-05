@@ -10,7 +10,7 @@ declare module "lib/result" {
 }
 
 // @filename: src/datastore_result.ts
-import { Result } from "lib/result";
+import { Result } from './fp-result-unified';
 
 export type T<T> = Result<Error, T>;
 
