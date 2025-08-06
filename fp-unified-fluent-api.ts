@@ -36,6 +36,40 @@ import {
   IsKindCompatible
 } from './fp-hkt';
 
+// Import optimization system
+import {
+  EvaluationMode,
+  OptimizationMetadata,
+  FusionRule,
+  Operation,
+  OptimizationHook,
+  OptimizationContext,
+  OptimizationResult,
+  OptimizationStep,
+  PerformanceProfile,
+  OptimizableTypeclassInstance,
+  OptimizableFPRegistry,
+  mapMapFusion,
+  mapFilterFusion,
+  filterFilterFusion,
+  chainMapFusion,
+  lazyOptimizationHook,
+  eagerOptimizationHook,
+  inliningOptimizationHook,
+  generateSinglePassOperation,
+  inlineFunction,
+  detectEvaluationMode,
+  createOptimizationMetadata,
+  optimizePipeline,
+  canOptimizePipeline,
+  getEvaluationMode,
+  registerOptimizationHooks,
+  optimizeFluentChain,
+  createOptimizedFluentMethod,
+  benchmarkOptimization,
+  verifyOptimizationCorrectness
+} from './fp-typeclass-optimization';
+
 // ============================================================================
 // Typeclass-Aware Type System
 // ============================================================================
@@ -122,6 +156,11 @@ export interface TypeclassAwareFluentMethods<A, T extends TypeclassCapabilities>
     ? TypeclassAwareFluentMethods<any, T> 
     : never;
   
+  // ReplicateA operation (only if Applicative capability exists)
+  replicateA(n: number): HasApplicative<T> extends true 
+    ? TypeclassAwareFluentMethods<A[], T> 
+    : never;
+  
   // Filter operations (only if Filterable capability exists, fallback to Monad)
   filter(predicate: (a: A) => boolean): HasFilterable<T> extends true 
     ? TypeclassAwareFluentMethods<A, T> 
@@ -142,6 +181,11 @@ export interface TypeclassAwareFluentMethods<A, T extends TypeclassCapabilities>
   
   // Traversable operations (only if Traversable capability exists)
   traverse<B, F>(f: (a: A) => any): HasTraversable<T> extends true 
+    ? TypeclassAwareFluentMethods<any, T> 
+    : never;
+  
+  // Sequence operation (only if Traversable capability exists)
+  sequence<G extends Kind1>(applicative: any): HasTraversable<T> extends true 
     ? TypeclassAwareFluentMethods<any, T> 
     : never;
   
@@ -248,6 +292,14 @@ export interface FluentMethodOptions {
   enableRuntimeDetection?: boolean;
   enableLazyDiscovery?: boolean;
   enableTypeclassAwareness?: boolean;
+  // New optimization options
+  enableOptimization?: boolean;
+  optimizationMode?: 'speed' | 'memory' | 'balanced';
+  maxOptimizationPasses?: number;
+  allowInlining?: boolean;
+  preserveOrder?: boolean;
+  enableFusion?: boolean;
+  enableSinglePass?: boolean;
 }
 
 /**
@@ -264,6 +316,9 @@ export interface FluentMethods<A> {
   // Applicative operations
   ap<B>(fab: any): any;
   
+  // ReplicateA operation
+  replicateA(n: number): any;
+  
   // Filter operations
   filter(predicate: (a: A) => boolean): any;
   
@@ -275,10 +330,43 @@ export interface FluentMethods<A> {
   // Traversable operations
   traverse<B, F>(f: (a: A) => any): any;
   
+  // Sequence operation
+  sequence<G extends Kind1>(applicative: any): any;
+  
   // Standard typeclass operations
   equals(other: A): boolean;
   compare(other: A): number;
   show(): string;
+}
+
+/**
+ * Extended fluent methods with optimization support
+ */
+export interface OptimizedFluentMethods<A> extends FluentMethods<A> {
+  // Standard fluent methods (inherited from FluentMethods<A>)
+  
+  // Optimization metadata
+  readonly optimizationMetadata?: OptimizationMetadata;
+  readonly evaluationMode?: EvaluationMode;
+  
+  // Optimization methods
+  optimize(): OptimizedFluentMethods<A>;
+  getOptimizationInfo(): {
+    canOptimize: boolean;
+    evaluationMode: EvaluationMode;
+    performanceProfile: PerformanceProfile;
+    optimizationSteps: OptimizationStep[];
+  };
+  
+  // Performance methods
+  benchmark(iterations?: number): {
+    unoptimized: { time: number; memory: number };
+    optimized: { time: number; memory: number };
+    improvement: { time: number; memory: number };
+  };
+  
+  // Verification methods
+  verifyOptimization(testData: any[]): boolean;
 }
 
 /**
@@ -685,6 +773,36 @@ export function addTypeclassAwareFluentMethods<A, T extends TypeclassCapabilitie
       const result = applicative.ap(fab, adt);
       return addTypeclassAwareFluentMethods(result, adtName, capabilities, options);
     };
+    
+    // ReplicateA method - creates n copies of the value inside the applicative
+    fluent.replicateA = (n: number): any => {
+      if (n <= 0) {
+        return applicative.of([]);
+      }
+      
+      // Create an array of n copies of the applicative
+      const replicatedArray = Array.from({ length: n }, () => adt);
+      
+      // Use sequence to convert [F A, F A, F A] to F [A, A, A]
+      // This is equivalent to: array.replicate(n, this).sequence(applicative)
+      const sequence = (fas: any[]): any => {
+        if (fas.length === 0) {
+          return applicative.of([]);
+        }
+        
+        const [head, ...tail] = fas;
+        const tailSequence = sequence(tail);
+        
+        // Apply the head to each element in the tail sequence
+        return applicative.ap(
+          applicative.map(head, (h: any) => (ts: any[]) => [h, ...ts]),
+          tailSequence
+        );
+      };
+      
+      const result = sequence(replicatedArray);
+      return addTypeclassAwareFluentMethods(result, adtName, capabilities, options);
+    };
   }
 
   // Filter methods (prioritize Filterable, fallback to Monad)
@@ -722,6 +840,14 @@ export function addTypeclassAwareFluentMethods<A, T extends TypeclassCapabilitie
   if (capabilities.Traversable && traversable) {
     fluent.traverse = <B, F>(f: (a: A) => any): any => {
       const result = traversable.traverse(adt, f);
+      return addTypeclassAwareFluentMethods(result, adtName, capabilities, options);
+    };
+    
+    // Sequence method - swaps outer and inner structure
+    // Equivalent to: traverse(identity)
+    fluent.sequence = <G extends Kind1>(applicative: any): any => {
+      const identity = (a: A) => a;
+      const result = traversable.traverse(adt, identity);
       return addTypeclassAwareFluentMethods(result, adtName, capabilities, options);
     };
   }
@@ -997,6 +1123,223 @@ export function addFluentMethods<A>(
 /**
  * Add fluent methods to an ADT constructor prototype with runtime detection
  */
+/**
+ * Add optimized fluent methods to an ADT instance
+ */
+export function addOptimizedFluentMethods<A>(
+  adt: any,
+  adtName: string,
+  options: FluentMethodOptions = {}
+): any & OptimizedFluentMethods<A> {
+  const {
+    enableOptimization = true,
+    optimizationMode = 'balanced',
+    maxOptimizationPasses = 3,
+    allowInlining = true,
+    preserveOrder = true,
+    enableFusion = true,
+    enableSinglePass = true,
+    ...fluentOptions
+  } = options;
+
+  // Get the base fluent methods
+  const fluentADT = addFluentMethods<A>(adt, adtName, fluentOptions);
+  
+  // Get typeclass instances for optimization
+  const instances = autoDiscoverDerivedInstances(adtName);
+  if (!instances) {
+    return fluentADT;
+  }
+
+  // Detect evaluation mode
+  const evaluationMode = detectEvaluationMode(instances);
+  
+  // Create optimization metadata
+  const optimizationMetadata = createOptimizationMetadata(instances, evaluationMode);
+  
+  // Register optimization hooks if enabled
+  if (enableOptimization) {
+    const hooks: OptimizationHook[] = [];
+    
+    if (evaluationMode === 'Lazy') {
+      hooks.push(lazyOptimizationHook);
+    } else {
+      hooks.push(eagerOptimizationHook);
+    }
+    
+    if (allowInlining) {
+      hooks.push(inliningOptimizationHook);
+    }
+    
+    registerOptimizationHooks(adtName, 'Monad', hooks);
+  }
+
+  // Create operation tracking for optimization
+  let operationChain: Array<{ method: string; args: any[] }> = [];
+  let optimizationSteps: OptimizationStep[] = [];
+
+  // Override fluent methods to track operations
+  const optimizedMethods: Partial<OptimizedFluentMethods<A>> = {
+    optimizationMetadata,
+    evaluationMode,
+    
+    // Override map to track operations
+    map: function<B>(f: (a: A) => B): any {
+      operationChain.push({ method: 'map', args: [f] });
+      
+      // Apply optimization if enabled
+      if (enableOptimization && operationChain.length > 1) {
+        const context: OptimizationContext = {
+          adtName,
+          typeclass: 'Monad',
+          evaluationMode,
+          targetPerformance: optimizationMode,
+          maxOptimizationPasses,
+          preserveOrder,
+          allowInlining
+        };
+        
+        const optimizationResult = optimizeFluentChain(adtName, operationChain, context);
+        if (optimizationResult.optimized) {
+          optimizationSteps = [...optimizationSteps, ...optimizationResult.optimizationSteps];
+          // Reset operation chain after optimization
+          operationChain = [];
+        }
+      }
+      
+      return fluentADT.map.call(this, f);
+    },
+    
+    // Override chain to track operations
+    chain: function<B>(f: (a: A) => any): any {
+      operationChain.push({ method: 'chain', args: [f] });
+      
+      // Apply optimization if enabled
+      if (enableOptimization && operationChain.length > 1) {
+        const context: OptimizationContext = {
+          adtName,
+          typeclass: 'Monad',
+          evaluationMode,
+          targetPerformance: optimizationMode,
+          maxOptimizationPasses,
+          preserveOrder,
+          allowInlining
+        };
+        
+        const optimizationResult = optimizeFluentChain(adtName, operationChain, context);
+        if (optimizationResult.optimized) {
+          optimizationSteps = [...optimizationSteps, ...optimizationResult.optimizationSteps];
+          operationChain = [];
+        }
+      }
+      
+      return fluentADT.chain.call(this, f);
+    },
+    
+    // Override filter to track operations
+    filter: function(predicate: (a: A) => boolean): any {
+      operationChain.push({ method: 'filter', args: [predicate] });
+      
+      // Apply optimization if enabled
+      if (enableOptimization && operationChain.length > 1) {
+        const context: OptimizationContext = {
+          adtName,
+          typeclass: 'Monad',
+          evaluationMode,
+          targetPerformance: optimizationMode,
+          maxOptimizationPasses,
+          preserveOrder,
+          allowInlining
+        };
+        
+        const optimizationResult = optimizeFluentChain(adtName, operationChain, context);
+        if (optimizationResult.optimized) {
+          optimizationSteps = [...optimizationSteps, ...optimizationResult.optimizationSteps];
+          operationChain = [];
+        }
+      }
+      
+      return fluentADT.filter.call(this, predicate);
+    },
+    
+    // Optimization methods
+    optimize: function(): OptimizedFluentMethods<A> {
+      if (operationChain.length === 0) {
+        return this;
+      }
+      
+      const context: OptimizationContext = {
+        adtName,
+        typeclass: 'Monad',
+        evaluationMode,
+        targetPerformance: optimizationMode,
+        maxOptimizationPasses,
+        preserveOrder,
+        allowInlining
+      };
+      
+      const optimizationResult = optimizeFluentChain(adtName, operationChain, context);
+      if (optimizationResult.optimized) {
+        optimizationSteps = [...optimizationSteps, ...optimizationResult.optimizationSteps];
+        operationChain = [];
+      }
+      
+      return this;
+    },
+    
+    getOptimizationInfo: function() {
+      return {
+        canOptimize: canOptimizePipeline(adtName, 'Monad', []),
+        evaluationMode,
+        performanceProfile: optimizationMetadata.performanceProfile,
+        optimizationSteps
+      };
+    },
+    
+    benchmark: function(iterations: number = 1000) {
+      // Convert operation chain to pipeline
+      const pipeline: Operation[] = operationChain.map(op => ({
+        type: op.method,
+        fn: op.args[0],
+        metadata: {
+          isPure: true,
+          hasSideEffects: false,
+          complexity: 1,
+          allocationCost: 0.1
+        },
+        dependencies: [],
+        outputType: 'unknown'
+      }));
+      
+      // Create test data
+      const testData = Array.from({ length: 1000 }, (_, i) => i);
+      
+      return benchmarkOptimization(adtName, 'Monad', pipeline, testData, iterations);
+    },
+    
+    verifyOptimization: function(testData: any[]) {
+      // Convert operation chain to pipeline
+      const pipeline: Operation[] = operationChain.map(op => ({
+        type: op.method,
+        fn: op.args[0],
+        metadata: {
+          isPure: true,
+          hasSideEffects: false,
+          complexity: 1,
+          allocationCost: 0.1
+        },
+        dependencies: [],
+        outputType: 'unknown'
+      }));
+      
+      return verifyOptimizationCorrectness(adtName, 'Monad', pipeline, testData);
+    }
+  };
+
+  // Merge optimized methods with fluent ADT
+  return Object.assign(fluentADT, optimizedMethods);
+}
+
 export function addFluentMethodsToPrototype<T extends new (...args: any[]) => any>(
   Ctor: T,
   adtName: string,
@@ -2616,6 +2959,811 @@ export namespace DeepTypeInferenceComposition {
   ): DeepFluentMethods<B, T, KindInfo> {
     return fluent.map(transform) as any;
   }
+}
+
+// ============================================================================
+// Typeclass-Aware Fluent Composition Implementation
+// ============================================================================
+
+/**
+ * Typeclass-aware fluent composition with conditional types
+ * This ensures all fluent methods remain fully typed and composable across typeclasses
+ */
+
+/**
+ * Conditional type to check if a typeclass capability exists
+ */
+export type HasCapability<T extends TypeclassCapabilities, K extends keyof TypeclassCapabilities> = 
+  T[K] extends true ? true : false;
+
+/**
+ * Type to extract available methods based on capabilities
+ */
+export type AvailableMethods<T extends TypeclassCapabilities> = {
+  // Functor methods
+  map: HasCapability<T, 'Functor'> extends true ? true : never;
+  
+  // Monad methods
+  chain: HasCapability<T, 'Monad'> extends true ? true : never;
+  flatMap: HasCapability<T, 'Monad'> extends true ? true : never;
+  
+  // Applicative methods
+  ap: HasCapability<T, 'Applicative'> extends true ? true : never;
+  replicateA: HasCapability<T, 'Applicative'> extends true ? true : never;
+  
+  // Filter methods
+  filter: HasCapability<T, 'Filterable'> extends true ? true : 
+          HasCapability<T, 'Monad'> extends true ? true : never;
+  
+  // Bifunctor methods
+  bimap: HasCapability<T, 'Bifunctor'> extends true ? true : never;
+  mapLeft: HasCapability<T, 'Bifunctor'> extends true ? true : never;
+  mapRight: HasCapability<T, 'Bifunctor'> extends true ? true : never;
+  
+  // Traversable methods
+  traverse: HasCapability<T, 'Traversable'> extends true ? true : never;
+  sequence: HasCapability<T, 'Traversable'> extends true ? true : never;
+  
+  // Standard typeclass methods
+  equals: HasCapability<T, 'Eq'> extends true ? true : never;
+  compare: HasCapability<T, 'Ord'> extends true ? true : never;
+  show: HasCapability<T, 'Show'> extends true ? true : never;
+};
+
+/**
+ * Typeclass-aware fluent methods with compile-time method filtering
+ */
+export interface TypeclassAwareComposableFluentMethods<
+  A, 
+  T extends TypeclassCapabilities,
+  Available extends AvailableMethods<T> = AvailableMethods<T>
+> {
+  // Functor operations (only if Functor capability exists)
+  map<B>(f: (a: A) => B): Available['map'] extends true 
+    ? TypeclassAwareComposableFluentMethods<B, T> 
+    : never;
+  
+  // Monad operations (only if Monad capability exists)
+  chain<B>(f: (a: A) => any): Available['chain'] extends true 
+    ? TypeclassAwareComposableFluentMethods<any, T> 
+    : never;
+  flatMap<B>(f: (a: A) => any): Available['flatMap'] extends true 
+    ? TypeclassAwareComposableFluentMethods<any, T> 
+    : never;
+  
+  // Applicative operations (only if Applicative capability exists)
+  ap<B>(fab: any): Available['ap'] extends true 
+    ? TypeclassAwareComposableFluentMethods<any, T> 
+    : never;
+  
+  // ReplicateA operation (only if Applicative capability exists)
+  replicateA(n: number): Available['replicateA'] extends true 
+    ? TypeclassAwareComposableFluentMethods<A[], T> 
+    : never;
+  
+  // Filter operations (only if Filterable or Monad capability exists)
+  filter(predicate: (a: A) => boolean): Available['filter'] extends true 
+    ? TypeclassAwareComposableFluentMethods<A, T> 
+    : never;
+  
+  // Bifunctor operations (only if Bifunctor capability exists)
+  bimap<L, R>(left: (l: L) => any, right: (r: R) => any): Available['bimap'] extends true 
+    ? TypeclassAwareComposableFluentMethods<any, T> 
+    : never;
+  mapLeft<L, R>(f: (l: L) => any): Available['mapLeft'] extends true 
+    ? TypeclassAwareComposableFluentMethods<any, T> 
+    : never;
+  mapRight<L, R>(f: (r: R) => any): Available['mapRight'] extends true 
+    ? TypeclassAwareComposableFluentMethods<any, T> 
+    : never;
+  
+  // Traversable operations (only if Traversable capability exists)
+  traverse<B, F>(f: (a: A) => any): Available['traverse'] extends true 
+    ? TypeclassAwareComposableFluentMethods<any, T> 
+    : never;
+  
+  // Sequence operation (only if Traversable capability exists)
+  sequence<G extends Kind1>(applicative: any): Available['sequence'] extends true 
+    ? TypeclassAwareComposableFluentMethods<any, T> 
+    : never;
+  
+  // Standard typeclass operations (only if respective capabilities exist)
+  equals(other: A): Available['equals'] extends true ? boolean : never;
+  compare(other: A): Available['compare'] extends true ? number : never;
+  show(): Available['show'] extends true ? string : never;
+  
+  // Chain state access
+  readonly chainState: {
+    value: A;
+    capabilities: T;
+    availableMethods: Available;
+    chainDepth: number;
+  };
+}
+
+/**
+ * Add typeclass-aware composable fluent methods to an ADT instance
+ */
+export function addTypeclassAwareComposableFluentMethods<
+  A, 
+  T extends TypeclassCapabilities
+>(
+  adt: A,
+  adtName: string,
+  capabilities: T,
+  options: FluentMethodOptions = {}
+): A & TypeclassAwareComposableFluentMethods<A, T> {
+  const detectionManager = RuntimeDetectionManager.getInstance();
+  
+  // Check cache first for lazy discovery
+  const cached = detectionManager.getCachedFluentMethods(adtName);
+  if (cached && options.enableLazyDiscovery) {
+    return cached as A & TypeclassAwareComposableFluentMethods<A, T>;
+  }
+
+  // Get typeclass instances
+  const instances = autoDiscoverDerivedInstances(adtName) || {};
+  const functor = instances.functor || getTypeclassInstance(adtName, 'Functor');
+  const applicative = instances.applicative || getTypeclassInstance(adtName, 'Applicative');
+  const monad = instances.monad || getTypeclassInstance(adtName, 'Monad');
+  const bifunctor = instances.bifunctor || getTypeclassInstance(adtName, 'Bifunctor');
+  const traversable = instances.traversable || getTypeclassInstance(adtName, 'Traversable');
+  const filterable = instances.filterable || getTypeclassInstance(adtName, 'Filterable');
+  const eq = instances.eq || getTypeclassInstance(adtName, 'Eq');
+  const ord = instances.ord || getTypeclassInstance(adtName, 'Ord');
+  const show = instances.show || getTypeclassInstance(adtName, 'Show');
+
+  // Create fluent object with typeclass-aware methods
+  const fluent: any = { ...adt };
+
+  // Initialize chain state
+  const chainState = {
+    value: adt,
+    capabilities,
+    availableMethods: {} as AvailableMethods<T>,
+    chainDepth: 0
+  };
+
+  // Functor methods (only if capability exists)
+  if (capabilities.Functor && functor) {
+    fluent.map = <B>(f: (a: A) => B): any => {
+      const result = functor.map(adt, f);
+      const newState = {
+        ...chainState,
+        value: result,
+        chainDepth: chainState.chainDepth + 1
+      };
+      return addTypeclassAwareComposableFluentMethods(result, adtName, capabilities, options);
+    };
+    chainState.availableMethods.map = true as any;
+  }
+
+  // Monad methods (only if capability exists)
+  if (capabilities.Monad && monad) {
+    fluent.chain = <B>(f: (a: A) => any): any => {
+      const result = monad.chain(adt, f);
+      const newState = {
+        ...chainState,
+        value: result,
+        chainDepth: chainState.chainDepth + 1
+      };
+      return addTypeclassAwareComposableFluentMethods(result, adtName, capabilities, options);
+    };
+    
+    fluent.flatMap = fluent.chain;
+    chainState.availableMethods.chain = true as any;
+    chainState.availableMethods.flatMap = true as any;
+  }
+
+  // Applicative methods (only if capability exists)
+  if (capabilities.Applicative && applicative) {
+    fluent.ap = <B>(fab: any): any => {
+      const result = applicative.ap(fab, adt);
+      const newState = {
+        ...chainState,
+        value: result,
+        chainDepth: chainState.chainDepth + 1
+      };
+      return addTypeclassAwareComposableFluentMethods(result, adtName, capabilities, options);
+    };
+    chainState.availableMethods.ap = true as any;
+  }
+
+  // Filter methods (prioritize Filterable, fallback to Monad)
+  if (capabilities.Filterable && filterable) {
+    fluent.filter = (predicate: (a: A) => boolean): any => {
+      const result = filterable.filter(adt, predicate);
+      const newState = {
+        ...chainState,
+        value: result,
+        chainDepth: chainState.chainDepth + 1
+      };
+      return addTypeclassAwareComposableFluentMethods(result, adtName, capabilities, options);
+    };
+    chainState.availableMethods.filter = true as any;
+  } else if (capabilities.Monad && monad) {
+    fluent.filter = (predicate: (a: A) => boolean): any => {
+      const result = monad.chain(adt, (a: A) => predicate(a) ? monad.of(a) : monad.of(null));
+      const newState = {
+        ...chainState,
+        value: result,
+        chainDepth: chainState.chainDepth + 1
+      };
+      return addTypeclassAwareComposableFluentMethods(result, adtName, capabilities, options);
+    };
+    chainState.availableMethods.filter = true as any;
+  }
+
+  // Bifunctor methods (only if capability exists)
+  if (capabilities.Bifunctor && bifunctor) {
+    fluent.bimap = <L, R>(left: (l: L) => any, right: (r: R) => any): any => {
+      const result = bifunctor.bimap(adt, left, right);
+      const newState = {
+        ...chainState,
+        value: result,
+        chainDepth: chainState.chainDepth + 1
+      };
+      return addTypeclassAwareComposableFluentMethods(result, adtName, capabilities, options);
+    };
+    
+    fluent.mapLeft = <L, R>(f: (l: L) => any): any => {
+      const result = bifunctor.mapLeft(adt, f);
+      const newState = {
+        ...chainState,
+        value: result,
+        chainDepth: chainState.chainDepth + 1
+      };
+      return addTypeclassAwareComposableFluentMethods(result, adtName, capabilities, options);
+    };
+    
+    fluent.mapRight = <L, R>(f: (r: R) => any): any => {
+      const result = bifunctor.mapRight(adt, f);
+      const newState = {
+        ...chainState,
+        value: result,
+        chainDepth: chainState.chainDepth + 1
+      };
+      return addTypeclassAwareComposableFluentMethods(result, adtName, capabilities, options);
+    };
+    
+    chainState.availableMethods.bimap = true as any;
+    chainState.availableMethods.mapLeft = true as any;
+    chainState.availableMethods.mapRight = true as any;
+  }
+
+  // Traversable methods (only if capability exists)
+  if (capabilities.Traversable && traversable) {
+    fluent.traverse = <B, F>(f: (a: A) => any): any => {
+      const result = traversable.traverse(adt, f);
+      const newState = {
+        ...chainState,
+        value: result,
+        chainDepth: chainState.chainDepth + 1
+      };
+      return addTypeclassAwareComposableFluentMethods(result, adtName, capabilities, options);
+    };
+    chainState.availableMethods.traverse = true as any;
+  }
+
+  // Standard typeclass methods (only if capabilities exist)
+  if (capabilities.Eq && eq) {
+    fluent.equals = (other: A): boolean => {
+      return eq.equals(adt, other);
+    };
+    chainState.availableMethods.equals = true as any;
+  }
+
+  if (capabilities.Ord && ord) {
+    fluent.compare = (other: A): number => {
+      return ord.compare(adt, other);
+    };
+    chainState.availableMethods.compare = true as any;
+  }
+
+  if (capabilities.Show && show) {
+    fluent.show = (): string => {
+      return show.show(adt);
+    };
+    chainState.availableMethods.show = true as any;
+  }
+
+  // Attach chain state
+  fluent.chainState = chainState;
+
+  // Cache the fluent methods for lazy discovery
+  if (options.enableLazyDiscovery) {
+    detectionManager.cacheFluentMethods(adtName, fluent);
+  }
+
+  return fluent as A & TypeclassAwareComposableFluentMethods<A, T>;
+}
+
+/**
+ * Create typeclass-aware composable fluent wrapper with automatic capability detection
+ */
+export function createTypeclassAwareComposableFluent<A>(
+  adt: A,
+  adtName: string,
+  options: FluentMethodOptions = {}
+): A & TypeclassAwareComposableFluentMethods<A, TypeclassCapabilities> {
+  const capabilities = detectTypeclassCapabilities(adtName);
+  return addTypeclassAwareComposableFluentMethods(adt, adtName, capabilities, options);
+}
+
+/**
+ * Typeclass-aware composition utilities with compile-time safety
+ */
+export namespace TypeclassAwareComposition {
+  /**
+   * Compose functions with typeclass-aware type safety
+   */
+  export function compose<
+    A, B, C,
+    T extends TypeclassCapabilities
+  >(
+    f: (a: A) => TypeclassAwareComposableFluentMethods<B, T>,
+    g: (b: B) => TypeclassAwareComposableFluentMethods<C, T>
+  ): (a: A) => TypeclassAwareComposableFluentMethods<C, T> {
+    return (a: A) => {
+      const fb = f(a);
+      return g(fb.chainState.value);
+    };
+  }
+
+  /**
+   * Pipe operations with typeclass-aware type safety
+   */
+  export function pipe<
+    A,
+    T extends TypeclassCapabilities
+  >(
+    value: A,
+    ...fns: Array<(x: any) => TypeclassAwareComposableFluentMethods<any, T>>
+  ): TypeclassAwareComposableFluentMethods<any, T> {
+    return fns.reduce((acc, fn) => fn(acc.chainState.value), value as any);
+  }
+
+  /**
+   * Create a fluent wrapper that preserves typeclass capabilities
+   */
+  export function withCapabilities<
+    A, 
+    T extends TypeclassCapabilities
+  >(
+    adt: A,
+    adtName: string,
+    capabilities: T,
+    options: FluentMethodOptions = {}
+  ): TypeclassAwareComposableFluentMethods<A, T> {
+    return addTypeclassAwareComposableFluentMethods(adt, adtName, capabilities, options);
+  }
+
+  /**
+   * Check if a fluent object has specific typeclass capabilities at runtime
+   */
+  export function hasCapability<
+    A, 
+    T extends TypeclassCapabilities
+  >(
+    fluent: TypeclassAwareComposableFluentMethods<A, T>,
+    capability: keyof TypeclassCapabilities
+  ): boolean {
+    return fluent.chainState.capabilities[capability] === true;
+  }
+
+  /**
+   * Safely access typeclass methods with runtime checks
+   */
+  export function safeAccess<
+    A, 
+    T extends TypeclassCapabilities
+  >(
+    fluent: TypeclassAwareComposableFluentMethods<A, T>,
+    method: string,
+    fallback?: any
+  ): any {
+    if (method in fluent && fluent.chainState.availableMethods[method as keyof AvailableMethods<T>]) {
+      return (fluent as any)[method];
+    }
+    return fallback;
+  }
+
+  /**
+   * Cross-typeclass chaining with compile-time safety
+   */
+  export function crossTypeclassChain<
+    A, B,
+    T1 extends TypeclassCapabilities,
+    T2 extends TypeclassCapabilities
+  >(
+    fluent: TypeclassAwareComposableFluentMethods<A, T1>,
+    transform: (a: A) => TypeclassAwareComposableFluentMethods<B, T2>
+  ): TypeclassAwareComposableFluentMethods<B, T2> {
+    return transform(fluent.chainState.value);
+  }
+
+  /**
+   * Conditional method access based on typeclass capabilities
+   */
+  export function conditionalAccess<
+    A,
+    T extends TypeclassCapabilities,
+    K extends keyof TypeclassCapabilities
+  >(
+    fluent: TypeclassAwareComposableFluentMethods<A, T>,
+    capability: K,
+    action: (fluent: TypeclassAwareComposableFluentMethods<A, T>) => any,
+    fallback?: any
+  ): any {
+    if (fluent.chainState.capabilities[capability]) {
+      return action(fluent);
+    }
+    return fallback;
+  }
+}
+
+/**
+ * Enhanced runtime detection manager with auto-discovery
+ */
+export class EnhancedRuntimeDetectionManager extends RuntimeDetectionManager {
+  private autoDiscoveryEnabled: boolean = true;
+  private autoGenerationEnabled: boolean = true;
+  private instanceCallbacks: Map<string, Array<(adtName: string, typeclass: string) => void>> = new Map();
+
+  constructor(config: RuntimeDetectionConfig & {
+    autoDiscovery?: boolean;
+    autoGeneration?: boolean;
+  } = { enabled: true }) {
+    super(config);
+    this.autoDiscoveryEnabled = config.autoDiscovery ?? true;
+    this.autoGenerationEnabled = config.autoGeneration ?? true;
+  }
+
+  /**
+   * Register a callback for when new instances are detected
+   */
+  onInstanceDetected(adtName: string, callback: (adtName: string, typeclass: string) => void): void {
+    if (!this.instanceCallbacks.has(adtName)) {
+      this.instanceCallbacks.set(adtName, []);
+    }
+    this.instanceCallbacks.get(adtName)!.push(callback);
+  }
+
+  /**
+   * Enhanced detection that includes auto-discovery
+   */
+  protected override detectNewInstances(): void {
+    super.detectNewInstances();
+
+    if (!this.autoDiscoveryEnabled) {
+      return;
+    }
+
+    // Get all registered ADTs
+    const registry = getFPRegistry();
+    if (!registry) {
+      return;
+    }
+
+    // Check each ADT for new derived instances
+    const derivableKeys = Array.from(registry.derivable.keys());
+    
+    for (const adtName of derivableKeys) {
+      const currentInstances = this.getCurrentTypeclassInstances(adtName);
+      const newInstances = this.detectNewDerivedInstances(adtName, currentInstances);
+      
+      if (newInstances.length > 0) {
+        this.handleNewDerivedInstances(adtName, newInstances);
+      }
+    }
+  }
+
+  /**
+   * Detect new derived instances for an ADT
+   */
+  private detectNewDerivedInstances(adtName: string, currentInstances: Set<string>): string[] {
+    const instances = autoDiscoverDerivedInstances(adtName);
+    if (!instances) {
+      return [];
+    }
+
+    const newInstances: string[] = [];
+    const typeclassMap: Record<string, keyof DerivedInstances> = {
+      'Functor': 'functor',
+      'Applicative': 'applicative',
+      'Monad': 'monad',
+      'Bifunctor': 'bifunctor',
+      'Traversable': 'traversable',
+      'Filterable': 'filterable',
+      'Eq': 'eq',
+      'Ord': 'ord',
+      'Show': 'show'
+    };
+
+    for (const [typeclass, key] of Object.entries(typeclassMap)) {
+      if (instances[key] && !currentInstances.has(typeclass)) {
+        newInstances.push(typeclass);
+      }
+    }
+
+    return newInstances;
+  }
+
+  /**
+   * Handle newly detected derived instances
+   */
+  private handleNewDerivedInstances(adtName: string, newTypeclasses: string[]): void {
+    console.log(`🔄 Auto-discovered new derived instances for ${adtName}:`, newTypeclasses);
+
+    // Update detected instances
+    const currentInstances = this.detectedInstances.get(adtName) || new Set();
+    for (const typeclass of newTypeclasses) {
+      currentInstances.add(typeclass);
+    }
+    this.detectedInstances.set(adtName, currentInstances);
+
+    // Trigger callbacks
+    const callbacks = this.instanceCallbacks.get(adtName) || [];
+    for (const callback of callbacks) {
+      for (const typeclass of newTypeclasses) {
+        callback(adtName, typeclass);
+      }
+    }
+
+    // Auto-generate fluent methods if enabled
+    if (this.autoGenerationEnabled) {
+      this.autoGenerateFluentMethodsForADT(adtName);
+    }
+  }
+
+  /**
+   * Auto-generate fluent methods for a specific ADT
+   */
+  private autoGenerateFluentMethodsForADT(adtName: string): void {
+    try {
+      // Try to find the ADT constructor or prototype
+      const adtConstructor = this.findADTConstructor(adtName);
+      if (adtConstructor) {
+        const instances = autoDiscoverDerivedInstances(adtName);
+        if (instances) {
+          const capabilities = detectTypeclassCapabilities(adtName);
+          addTypeclassAwareFluentMethods(adtConstructor.prototype, adtName, capabilities, {
+            enableRuntimeDetection: true,
+            enableLazyDiscovery: true
+          });
+          console.log(`✅ Auto-generated fluent methods for ${adtName}`);
+        }
+      }
+    } catch (error) {
+      console.warn(`⚠️ Failed to auto-generate fluent methods for ${adtName}:`, error);
+    }
+  }
+
+  /**
+   * Find ADT constructor by name
+   */
+  private findADTConstructor(adtName: string): any {
+    // Try to find in global scope
+    if (typeof globalThis !== 'undefined' && (globalThis as any)[adtName]) {
+      return (globalThis as any)[adtName];
+    }
+
+    // Try to find in module scope
+    try {
+      const module = require(`./fp-${adtName.toLowerCase()}-unified`);
+      if (module[adtName]) {
+        return module[adtName];
+      }
+    } catch (e) {
+      // Module not found
+    }
+
+    return null;
+  }
+
+  /**
+   * Get enhanced detection status
+   */
+  getEnhancedStatus(): {
+    enabled: boolean;
+    autoDiscovery: boolean;
+    autoGeneration: boolean;
+    detectedInstances: Map<string, string[]>;
+    callbacks: Map<string, number>;
+  } {
+    return {
+      enabled: this.config.enabled,
+      autoDiscovery: this.autoDiscoveryEnabled,
+      autoGeneration: this.autoGenerationEnabled,
+      detectedInstances: this.detectedInstances,
+      callbacks: new Map(
+        Array.from(this.instanceCallbacks.entries()).map(([key, value]) => [key, value.length])
+      )
+    };
+  }
+}
+
+/**
+ * Enhanced auto-registration with runtime detection
+ */
+export function enhancedAutoRegisterFluentMethods(): void {
+  console.log('🚀 Starting enhanced auto-registration of fluent methods...');
+
+  // Get all registered ADTs
+  const registry = getFPRegistry();
+  if (!registry) {
+    console.warn('⚠️ FP Registry not available');
+    return;
+  }
+
+  // Get all derivable ADTs
+  const derivableKeys = Array.from(registry.derivable.keys());
+  
+  for (const adtName of derivableKeys) {
+    try {
+      console.log(`📋 Processing ${adtName}...`);
+      
+      // Auto-discover instances
+      const instances = autoDiscoverDerivedInstances(adtName);
+      if (!instances) {
+        console.log(`⚠️ No derived instances found for ${adtName}`);
+        continue;
+      }
+
+      // Detect capabilities
+      const capabilities = detectTypeclassCapabilities(adtName);
+      console.log(`✅ ${adtName} capabilities:`, Object.keys(capabilities).filter(k => capabilities[k as keyof TypeclassCapabilities]));
+
+      // Find ADT constructor
+      const adtConstructor = findADTConstructor(adtName);
+      if (!adtConstructor) {
+        console.warn(`⚠️ Could not find constructor for ${adtName}`);
+        continue;
+      }
+
+      // Add fluent methods
+      addTypeclassAwareFluentMethods(adtConstructor.prototype, adtName, capabilities, {
+        enableRuntimeDetection: true,
+        enableLazyDiscovery: true,
+        enableLawVerification: true
+      });
+
+      console.log(`✅ Successfully added fluent methods to ${adtName}`);
+
+    } catch (error) {
+      console.error(`❌ Failed to process ${adtName}:`, error);
+    }
+  }
+
+  // Start runtime detection
+  const detectionManager = new EnhancedRuntimeDetectionManager({
+    enabled: true,
+    autoDiscovery: true,
+    autoGeneration: true,
+    pollInterval: 5000,
+    autoRefresh: true
+  });
+
+  detectionManager.startDetection();
+  console.log('✅ Enhanced auto-registration completed with runtime detection');
+}
+
+/**
+ * Helper function to find ADT constructor
+ */
+function findADTConstructor(adtName: string): any {
+  // Try to find in global scope
+  if (typeof globalThis !== 'undefined' && (globalThis as any)[adtName]) {
+    return (globalThis as any)[adtName];
+  }
+
+  // Try to find in module scope
+  try {
+    const module = require(`./fp-${adtName.toLowerCase()}-unified`);
+    if (module[adtName]) {
+      return module[adtName];
+    }
+  } catch (e) {
+    // Module not found
+  }
+
+  // Try alternative naming patterns
+  try {
+    const module = require(`./fp-${adtName.toLowerCase()}`);
+    if (module[adtName]) {
+      return module[adtName];
+    }
+  } catch (e) {
+    // Module not found
+  }
+
+  return null;
+}
+
+/**
+ * Enhanced verification that includes auto-discovery
+ */
+export function enhancedVerifyAllRegistryADTs(): void {
+  console.log('🔍 Enhanced verification of all registry ADTs...');
+
+  const registry = getFPRegistry();
+  if (!registry) {
+    console.warn('⚠️ FP Registry not available');
+    return;
+  }
+
+  const derivableKeys = Array.from(registry.derivable.keys());
+  const results: Array<{
+    adtName: string;
+    hasDerivedInstances: boolean;
+    capabilities: string[];
+    fluentMethodsGenerated: boolean;
+    lawConsistent: boolean;
+  }> = [];
+
+  for (const adtName of derivableKeys) {
+    console.log(`📋 Verifying ${adtName}...`);
+
+    const result = {
+      adtName,
+      hasDerivedInstances: false,
+      capabilities: [],
+      fluentMethodsGenerated: false,
+      lawConsistent: false
+    };
+
+    // Check for derived instances
+    const instances = autoDiscoverDerivedInstances(adtName);
+    if (instances) {
+      result.hasDerivedInstances = true;
+      result.capabilities = getTypeclassCapabilities(adtName);
+    }
+
+    // Check for fluent methods
+    const adtConstructor = findADTConstructor(adtName);
+    if (adtConstructor && adtConstructor.prototype) {
+      result.fluentMethodsGenerated = hasFluentMethods(adtConstructor.prototype);
+    }
+
+    // Check law consistency
+    if (result.hasDerivedInstances && result.fluentMethodsGenerated) {
+      try {
+        result.lawConsistent = testLawConsistency(adtName, null, (x: any) => x);
+      } catch (e) {
+        console.warn(`⚠️ Law consistency test failed for ${adtName}:`, e);
+      }
+    }
+
+    results.push(result);
+  }
+
+  // Print summary
+  console.log('\n📊 Enhanced Verification Summary:');
+  console.log('=====================================');
+  
+  const successful = results.filter(r => r.hasDerivedInstances && r.fluentMethodsGenerated && r.lawConsistent);
+  const partial = results.filter(r => r.hasDerivedInstances && r.fluentMethodsGenerated && !r.lawConsistent);
+  const failed = results.filter(r => !r.hasDerivedInstances || !r.fluentMethodsGenerated);
+
+  console.log(`✅ Fully successful: ${successful.length}/${results.length}`);
+  console.log(`⚠️ Partially successful: ${partial.length}/${results.length}`);
+  console.log(`❌ Failed: ${failed.length}/${results.length}`);
+
+  if (failed.length > 0) {
+    console.log('\n❌ Failed ADTs:');
+    failed.forEach(r => {
+      console.log(`  - ${r.adtName}: derived=${r.hasDerivedInstances}, fluent=${r.fluentMethodsGenerated}, laws=${r.lawConsistent}`);
+    });
+  }
+
+  if (partial.length > 0) {
+    console.log('\n⚠️ Partially successful ADTs:');
+    partial.forEach(r => {
+      console.log(`  - ${r.adtName}: capabilities=${r.capabilities.join(', ')}`);
+    });
+  }
+
+  console.log('\n✅ Enhanced verification completed');
 }
 
 // ============================================================================
