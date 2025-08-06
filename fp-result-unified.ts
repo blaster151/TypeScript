@@ -29,6 +29,13 @@ import {
   createPurityInfo, attachPurityMarker, extractPurityMarker, hasPurityMarker
 } from './fp-purity';
 
+import { 
+  deriveInstances, 
+  deriveEqInstance, 
+  deriveOrdInstance, 
+  deriveShowInstance 
+} from './fp-derivation-helpers';
+
 // ============================================================================
 // Part 1: Unified Result ADT Definition
 // ============================================================================
@@ -44,7 +51,8 @@ export const ResultUnified = createSumType({
   effect: 'Pure',
   enableHKT: true,
   enableDerivableInstances: true,
-  enableRuntimeMarkers: false
+  enableRuntimeMarkers: false,
+  derive: ['Eq', 'Ord', 'Show']
 });
 
 /**
@@ -259,43 +267,94 @@ export const eitherToResult = <T, E>(either: Either<E, T>): Result<T, E> => {
 };
 
 // ============================================================================
-// Part 4: Typeclass Instances
+// Part 4: Typeclass Instances (Derived)
 // ============================================================================
 
 /**
- * Functor instance for Result (maps over Ok)
+ * Result derived instances
  */
-export const ResultFunctor: Functor<ResultK> = {
-  map: mapResult
-};
+export const ResultInstances = deriveInstances({
+  functor: true,
+  applicative: true,
+  monad: true,
+  bifunctor: true,
+  customMap: <T, E, U>(fa: Result<T, E>, f: (t: T) => U): Result<U, E> => 
+    matchResult(fa, {
+      Ok: value => Ok(f(value)),
+      Err: error => Err(error)
+    }),
+  customChain: <T, E, U>(fa: Result<T, E>, f: (t: T) => Result<U, E>): Result<U, E> => 
+    matchResult(fa, {
+      Ok: value => f(value),
+      Err: error => Err(error)
+    }),
+  customBimap: <T, E, U, F>(
+    fab: Result<T, E>,
+    f: (t: T) => U,
+    g: (e: E) => F
+  ): Result<U, F> => 
+    matchResult(fab, {
+      Ok: value => Ok(f(value)),
+      Err: error => Err(g(error))
+    })
+});
+
+export const ResultFunctor = ResultInstances.functor;
+export const ResultApplicative = ResultInstances.applicative;
+export const ResultMonad = ResultInstances.monad;
+export const ResultBifunctor = ResultInstances.bifunctor;
 
 /**
- * Bifunctor instance for Result
+ * Result standard typeclass instances
  */
-export const ResultBifunctor: Bifunctor<ResultK> = {
-  bimap: bimapResult,
-  mapLeft: mapErr
-};
+export const ResultEq = deriveEqInstance({
+  customEq: <T, E>(a: Result<T, E>, b: Result<T, E>): boolean => {
+    return matchResult(a, {
+      Ok: aValue => matchResult(b, {
+        Ok: bValue => aValue === bValue,
+        Err: () => false
+      }),
+      Err: aError => matchResult(b, {
+        Ok: () => false,
+        Err: bError => aError === bError
+      })
+    });
+  }
+});
+
+export const ResultOrd = deriveOrdInstance({
+  customOrd: <T, E>(a: Result<T, E>, b: Result<T, E>): number => {
+    return matchResult(a, {
+      Ok: aValue => matchResult(b, {
+        Ok: bValue => {
+          if (aValue < bValue) return -1;
+          if (aValue > bValue) return 1;
+          return 0;
+        },
+        Err: () => 1 // Ok > Err
+      }),
+      Err: aError => matchResult(b, {
+        Ok: () => -1, // Err < Ok
+        Err: bError => {
+          if (aError < bError) return -1;
+          if (aError > bError) return 1;
+          return 0;
+        }
+      })
+    });
+  }
+});
+
+export const ResultShow = deriveShowInstance({
+  customShow: <T, E>(a: Result<T, E>): string => 
+    matchResult(a, {
+      Ok: value => `Ok(${JSON.stringify(value)})`,
+      Err: error => `Err(${JSON.stringify(error)})`
+    })
+});
 
 /**
- * Applicative instance for Result
- */
-export const ResultApplicative: Applicative<ResultK> = {
-  ...ResultFunctor,
-  of: Ok,
-  ap: apResult
-};
-
-/**
- * Monad instance for Result
- */
-export const ResultMonad: Monad<ResultK> = {
-  ...ResultApplicative,
-  chain: chainResult
-};
-
-/**
- * Foldable instance for Result
+ * Foldable instance for Result (manual due to complexity)
  */
 export const ResultFoldable: Foldable<ResultK> = {
   reduce: <T, E, B>(result: Result<T, E>, f: (b: B, t: T) => B, b: B): B => {
@@ -313,10 +372,10 @@ export const ResultFoldable: Foldable<ResultK> = {
 };
 
 /**
- * Traversable instance for Result
+ * Traversable instance for Result (manual due to complexity)
  */
 export const ResultTraversable: Traversable<ResultK> = {
-  ...ResultFunctor,
+  ...ResultFunctor!,
   sequence: <T, E>(resultArray: Result<T[], E>): T[] => {
     return matchResult(resultArray, {
       Ok: value => value,

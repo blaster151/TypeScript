@@ -48,7 +48,8 @@ export const MaybeEnhanced = createSumType({
   effect: 'Pure',
   enableHKT: true,
   enableDerivableInstances: true,
-  enableRuntimeMarkers: false
+  enableRuntimeMarkers: false,
+  derive: ['Eq', 'Ord', 'Show']
 });
 
 /**

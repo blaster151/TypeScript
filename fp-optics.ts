@@ -414,13 +414,46 @@ export function modifyOption<S, T, A, B>(opt: Optional<S, T, A, B>, f: (a: A) =>
 }
 
 // ============================================================================
-// Part 7: Traversal Utilities
+// Part 6: Enhanced Traversal Interface and Utilities
+// ============================================================================
+
+/**
+ * Enhanced Traversal interface with chainable and terminal operations
+ */
+export interface EnhancedTraversal<S, T, A, B> extends Traversal<S, T, A, B> {
+  // Chainable operations (return new Traversal)
+  take(count: number): EnhancedTraversal<S, T, A, B>;
+  drop(count: number): EnhancedTraversal<S, T, A, B>;
+  slice(start: number, end?: number): EnhancedTraversal<S, T, A, B>;
+  reverse(): EnhancedTraversal<S, T, A, B>;
+  filter(predicate: (a: A) => boolean): EnhancedTraversal<S, T, A, B>;
+  sortBy(fn: (a: A) => any): EnhancedTraversal<S, T, A, B>;
+  distinct(): EnhancedTraversal<S, T, A, B>;
+  
+  // Terminal fold operations (return concrete values)
+  reduce<R>(reducer: (acc: R, a: A) => R, initial: R): (source: S) => R;
+  foldMap<M>(monoid: Monoid<M>, fn: (a: A) => M): (source: S) => M;
+  all(predicate: (a: A) => boolean): (source: S) => boolean;
+  any(predicate: (a: A) => boolean): (source: S) => boolean;
+  
+  // Composition
+  then<C, D>(next: Lens<A, B, C, D> | Prism<A, B, C, D> | Optional<A, B, C, D> | Traversal<A, B, C, D>): EnhancedTraversal<S, T, C, D>;
+}
+
+/**
+ * Monoid interface for fold operations
+ */
+export interface Monoid<A> {
+  empty(): A;
+  concat(a: A, b: A): A;
+}
+
+// ============================================================================
+// Part 7: Traversal Utility Functions
 // ============================================================================
 
 /**
  * Create a traversal from a traverse function
- * @param traverse - Function to traverse the focused parts
- * @returns A traversal that can focus on multiple parts
  */
 export function traversal<S, T, A, B>(
   traverse: (f: (a: A) => B, s: S) => T
@@ -434,38 +467,404 @@ export function traversal<S, T, A, B>(
 }
 
 /**
- * Traverse over the focused parts of a structure
- * @param tr - The traversal to use
- * @param f - The function to apply to each focused part
- * @param s - The structure to traverse
- * @returns The modified structure
+ * Create a traversal that takes only the first n elements
  */
-export function traverse<S, T, A, B>(
-  tr: Traversal<S, T, A, B>,
-  f: (a: A) => B,
-  s: S
-): T {
-  const traverseOptic = tr(f as any);
-  return (traverseOptic as any)(s);
+export function takeTraversal<S, T, A, B>(
+  t: Traversal<S, T, A, B>,
+  count: number
+): Traversal<S, T, A, B> {
+  return traversal<S, T, A, B>((f, s) => {
+    // Simplified implementation that works with current traversal structure
+    const elements: A[] = [];
+    const result = t((a: A) => {
+      elements.push(a);
+      return a;
+    } as any)(s);
+    
+    // Apply function only to first count elements
+    return t((a: A, index: number) => {
+      return index < count ? f(a) : a;
+    } as any)(s);
+  });
 }
 
 /**
- * Map over the focused parts of a structure
- * @param tr - The traversal to use
- * @param f - The function to apply to each focused part
- * @param s - The structure to map over
- * @returns The modified structure
+ * Create a traversal that drops the first n elements
  */
-export function map<S, T, A, B>(
-  tr: Traversal<S, T, A, B>,
-  f: (a: A) => B,
-  s: S
-): T {
-  return traverse(tr, f, s);
+export function dropTraversal<S, T, A, B>(
+  t: Traversal<S, T, A, B>,
+  count: number
+): Traversal<S, T, A, B> {
+  return traversal<S, T, A, B>((f, s) => {
+    // Simplified implementation
+    const elements: A[] = [];
+    t((a: A) => {
+      elements.push(a);
+      return a;
+    } as any)(s);
+    
+    // Apply function only to elements after count
+    return t((a: A, index: number) => {
+      return index >= count ? f(a) : a;
+    } as any)(s);
+  });
+}
+
+/**
+ * Create a traversal that slices elements by range
+ */
+export function sliceTraversal<S, T, A, B>(
+  t: Traversal<S, T, A, B>,
+  start: number,
+  end?: number
+): Traversal<S, T, A, B> {
+  return traversal<S, T, A, B>((f, s) => {
+    // Simplified implementation
+    const elements: A[] = [];
+    t((a: A) => {
+      elements.push(a);
+      return a;
+    } as any)(s);
+    
+    // Apply function only to elements in range
+    return t((a: A, index: number) => {
+      const inRange = index >= start && (end === undefined || index < end);
+      return inRange ? f(a) : a;
+    } as any)(s);
+  });
+}
+
+/**
+ * Create a traversal that reverses element order
+ */
+export function reverseTraversal<S, T, A, B>(
+  t: Traversal<S, T, A, B>
+): Traversal<S, T, A, B> {
+  return traversal<S, T, A, B>((f, s) => {
+    // Simplified implementation
+    const elements: A[] = [];
+    t((a: A) => {
+      elements.push(a);
+      return a;
+    } as any)(s);
+    
+    // Apply function in reverse order
+    let reverseIndex = elements.length - 1;
+    return t((a: A) => {
+      const result = reverseIndex >= 0 ? f(elements[reverseIndex]) : a;
+      reverseIndex--;
+      return result;
+    } as any)(s);
+  });
+}
+
+/**
+ * Create a traversal that filters elements by predicate
+ */
+export function filterTraversal<S, T, A, B>(
+  t: Traversal<S, T, A, B>,
+  predicate: (a: A) => boolean
+): Traversal<S, T, A, B> {
+  return traversal<S, T, A, B>((f, s) => {
+    return t((a: A) => predicate(a) ? f(a) : a as any)(s);
+  });
+}
+
+/**
+ * Create a traversal that sorts elements by projection
+ */
+export function sortByTraversal<S, T, A, B>(
+  t: Traversal<S, T, A, B>,
+  fn: (a: A) => any
+): Traversal<S, T, A, B> {
+  return traversal<S, T, A, B>((f, s) => {
+    // Simplified implementation
+    const elements: Array<{ value: A; sortKey: any }> = [];
+    t((a: A) => {
+      elements.push({ value: a, sortKey: fn(a) });
+      return a;
+    } as any)(s);
+    
+    // Sort by sort key
+    elements.sort((a, b) => {
+      if (a.sortKey < b.sortKey) return -1;
+      if (a.sortKey > b.sortKey) return 1;
+      return 0;
+    });
+    
+    // Apply function to sorted elements
+    let index = 0;
+    return t((a: A) => {
+      const result = index < elements.length ? f(elements[index].value) : a;
+      index++;
+      return result;
+    } as any)(s);
+  });
+}
+
+/**
+ * Create a traversal that removes duplicates
+ */
+export function distinctTraversal<S, T, A, B>(
+  t: Traversal<S, T, A, B>
+): Traversal<S, T, A, B> {
+  return traversal<S, T, A, B>((f, s) => {
+    // Simplified implementation
+    const seen = new Set<any>();
+    const uniqueElements: A[] = [];
+    
+    t((a: A) => {
+      if (!seen.has(a)) {
+        seen.add(a);
+        uniqueElements.push(a);
+      }
+      return a;
+    } as any)(s);
+    
+    // Apply function to unique elements
+    let index = 0;
+    return t((a: A) => {
+      const result = index < uniqueElements.length ? f(uniqueElements[index]) : a;
+      index++;
+      return result;
+    } as any)(s);
+  });
 }
 
 // ============================================================================
-// Part 7: Common Lens Constructors
+// Part 8: Fold Utility Functions
+// ============================================================================
+
+/**
+ * Reduce all visited elements using a reducer function
+ */
+export function reduceTraversal<S, T, A, B, R>(
+  t: Traversal<S, T, A, B>,
+  reducer: (acc: R, a: A) => R,
+  initial: R,
+  source: S
+): R {
+  const elements: A[] = [];
+  t.modifyA(IdentityApplicative)((a) => {
+    elements.push(a);
+    return a;
+  })(source);
+  
+  return elements.reduce(reducer, initial);
+}
+
+/**
+ * Map each visited element to a monoid value and combine them
+ */
+export function foldMapTraversal<S, T, A, B, M>(
+  t: Traversal<S, T, A, B>,
+  monoid: Monoid<M>,
+  fn: (a: A) => M,
+  source: S
+): M {
+  const elements: A[] = [];
+  t.modifyA(IdentityApplicative)((a) => {
+    elements.push(a);
+    return a;
+  })(source);
+  
+  return elements.reduce((acc, a) => monoid.concat(acc, fn(a)), monoid.empty());
+}
+
+/**
+ * Return true if all visited elements satisfy the predicate
+ */
+export function allTraversal<S, T, A, B>(
+  t: Traversal<S, T, A, B>,
+  predicate: (a: A) => boolean,
+  source: S
+): boolean {
+  const elements: A[] = [];
+  t.modifyA(IdentityApplicative)((a) => {
+    elements.push(a);
+    return a;
+  })(source);
+  
+  return elements.every(predicate);
+}
+
+/**
+ * Return true if any visited element satisfies the predicate
+ */
+export function anyTraversal<S, T, A, B>(
+  t: Traversal<S, T, A, B>,
+  predicate: (a: A) => boolean,
+  source: S
+): boolean {
+  const elements: A[] = [];
+  t.modifyA(IdentityApplicative)((a) => {
+    elements.push(a);
+    return a;
+  })(source);
+  
+  return elements.some(predicate);
+}
+
+// ============================================================================
+// Part 9: Common Monoids
+// ============================================================================
+
+/**
+ * Sum Monoid for numbers
+ */
+export const SumMonoid: Monoid<number> = {
+  empty: () => 0,
+  concat: (a, b) => a + b
+};
+
+/**
+ * Product Monoid for numbers
+ */
+export const ProductMonoid: Monoid<number> = {
+  empty: () => 1,
+  concat: (a, b) => a * b
+};
+
+/**
+ * String Monoid for string concatenation
+ */
+export const StringMonoid: Monoid<string> = {
+  empty: () => '',
+  concat: (a, b) => a + b
+};
+
+/**
+ * Array Monoid for array concatenation
+ */
+export function ArrayMonoid<A>(): Monoid<A[]> {
+  return {
+    empty: () => [],
+    concat: (a, b) => [...a, ...b]
+  };
+}
+
+/**
+ * Any Monoid for booleans (OR operation)
+ */
+export const AnyMonoid: Monoid<boolean> = {
+  empty: () => false,
+  concat: (a, b) => a || b
+};
+
+/**
+ * All Monoid for booleans (AND operation)
+ */
+export const AllMonoid: Monoid<boolean> = {
+  empty: () => true,
+  concat: (a, b) => a && b
+};
+
+// ============================================================================
+// Part 10: Enhanced Traversal Constructor
+// ============================================================================
+
+/**
+ * Create an enhanced traversal with all chainable and terminal operations
+ */
+export function enhancedTraversal<S, T, A, B>(
+  baseTraversal: Traversal<S, T, A, B>
+): EnhancedTraversal<S, T, A, B> {
+  const enhanced = baseTraversal as EnhancedTraversal<S, T, A, B>;
+  
+  // Chainable operations
+  enhanced.take = (count: number) => enhancedTraversal(takeTraversal(enhanced, count));
+  enhanced.drop = (count: number) => enhancedTraversal(dropTraversal(enhanced, count));
+  enhanced.slice = (start: number, end?: number) => enhancedTraversal(sliceTraversal(enhanced, start, end));
+  enhanced.reverse = () => enhancedTraversal(reverseTraversal(enhanced));
+  enhanced.filter = (predicate: (a: A) => boolean) => enhancedTraversal(filterTraversal(enhanced, predicate));
+  enhanced.sortBy = (fn: (a: A) => any) => enhancedTraversal(sortByTraversal(enhanced, fn));
+  enhanced.distinct = () => enhancedTraversal(distinctTraversal(enhanced));
+  
+  // Terminal fold operations
+  enhanced.reduce = <R>(reducer: (acc: R, a: A) => R, initial: R) => 
+    (source: S) => reduceTraversal(enhanced, reducer, initial, source);
+  
+  enhanced.foldMap = <M>(monoid: Monoid<M>, fn: (a: A) => M) => 
+    (source: S) => foldMapTraversal(enhanced, monoid, fn, source);
+  
+  enhanced.all = (predicate: (a: A) => boolean) => 
+    (source: S) => allTraversal(enhanced, predicate, source);
+  
+  enhanced.any = (predicate: (a: A) => boolean) => 
+    (source: S) => anyTraversal(enhanced, predicate, source);
+  
+  // Composition
+  enhanced.then = <C, D>(next: Lens<A, B, C, D> | Prism<A, B, C, D> | Optional<A, B, C, D> | Traversal<A, B, C, D>) => {
+    // Implementation would depend on the specific optic type
+    // For now, return a basic composition
+    return enhancedTraversal(compose(enhanced, next as any));
+  };
+  
+  return enhanced;
+}
+
+// ============================================================================
+// Part 11: Identity Applicative for Fold Operations
+// ============================================================================
+
+/**
+ * Identity Applicative for collecting elements during fold operations
+ */
+const IdentityApplicative: Applicative<FunctionK> = {
+  of: <A>(a: A) => a,
+  ap: <A, B>(fab: (a: A) => B, fa: A) => fab(fa),
+  map: <A, B>(f: (a: A) => B, fa: A) => f(fa)
+};
+
+// ============================================================================
+// Part 12: Common Traversal Constructors
+// ============================================================================
+
+/**
+ * Create a traversal that focuses on all elements of an array
+ */
+export function each<S extends any[], T extends any[], A, B>(): EnhancedTraversal<S, T, A, B> {
+  return enhancedTraversal(traversal<S, T, A, B>((f, s) => {
+    return s.map(f) as T;
+  }));
+}
+
+/**
+ * Create a traversal that focuses on all values of an object
+ */
+export function values<S extends Record<string, any>, T extends Record<string, any>, A, B>(): EnhancedTraversal<S, T, A, B> {
+  return enhancedTraversal(traversal<S, T, A, B>((f, s) => {
+    const result = { ...s };
+    for (const key in result) {
+      if (result.hasOwnProperty(key)) {
+        result[key] = f(result[key]);
+      }
+    }
+    return result as T;
+  }));
+}
+
+/**
+ * Create a traversal that focuses on all keys of an object
+ */
+export function keys<S extends Record<string, any>, T extends Record<string, any>, A, B>(): EnhancedTraversal<S, T, A, B> {
+  return enhancedTraversal(traversal<S, T, A, B>((f, s) => {
+    const result = { ...s };
+    const objectKeys = Object.keys(s);
+    for (let i = 0; i < objectKeys.length; i++) {
+      const key = objectKeys[i];
+      const newKey = f(key as A);
+      if (newKey !== key) {
+        result[newKey as string] = result[key];
+        delete result[key];
+      }
+    }
+    return result as T;
+  }));
+}
+
+// ============================================================================
+// Part 13: Common Lens Constructors
 // ============================================================================
 
 /**
@@ -790,9 +1189,14 @@ export {
   Lens,
   Prism,
   Traversal,
+  Optional,
   Iso,
   Getter,
   Setter,
+  
+  // Enhanced Traversal interface
+  EnhancedTraversal,
+  Monoid,
   
   // Profunctor variants
   Choice,
@@ -817,10 +1221,40 @@ export {
   review,
   isMatching,
   
+  // Optional utilities
+  optional,
+  getOption,
+  setOption,
+  modifyOption,
+  
   // Traversal utilities
   traversal,
   traverse,
   map,
+  
+  // Enhanced Traversal utilities
+  enhancedTraversal,
+  takeTraversal,
+  dropTraversal,
+  sliceTraversal,
+  reverseTraversal,
+  filterTraversal,
+  sortByTraversal,
+  distinctTraversal,
+  
+  // Fold utilities
+  reduceTraversal,
+  foldMapTraversal,
+  allTraversal,
+  anyTraversal,
+  
+  // Common Monoids
+  SumMonoid,
+  ProductMonoid,
+  StringMonoid,
+  ArrayMonoid,
+  AnyMonoid,
+  AllMonoid,
   
   // Common constructors
   prop,
@@ -835,6 +1269,7 @@ export {
   array,
   values,
   keys,
+  each,
   
   // Composition
   compose,
@@ -850,6 +1285,7 @@ export {
   // Utility functions
   isLens,
   isPrism,
+  isOptional,
   isTraversal,
   isOptic,
   to,

@@ -1,5 +1,5 @@
 /**
- * Immutable-Aware Derivable Instances
+ * Immutable-Aware Derivable Instances with Dual API Support
  * 
  * This module provides automatic typeclass instance derivation for persistent collections
  * based on their API contracts and branding, eliminating the need for manual instance definitions.
@@ -11,6 +11,7 @@
  * - Runtime registry for derived instances
  * - Readonly-safe and immutable-branded instances
  * - Integration with GADT pattern matchers
+ * - Dual API generation (fluent methods + data-last functions)
  */
 
 import {
@@ -42,8 +43,121 @@ import {
 } from './fp-gadt-enhanced';
 
 import {
-  DeepImmutable, ImmutableArray
+  Immutable, immutableArray
 } from './fp-immutable';
+
+// ============================================================================
+// Dual API Support
+// ============================================================================
+
+/**
+ * Typeclass operation names for automatic dual API generation
+ */
+export const TYPECLASS_OPERATIONS = {
+  // Functor operations
+  Functor: ['map'] as const,
+  
+  // Applicative operations (extends Functor)
+  Applicative: ['of', 'ap'] as const,
+  
+  // Monad operations (extends Applicative)
+  Monad: ['chain'] as const,
+  
+  // Bifunctor operations
+  Bifunctor: ['bimap', 'mapLeft'] as const,
+  
+  // Profunctor operations
+  Profunctor: ['dimap', 'lmap', 'rmap'] as const,
+  
+  // Additional operations from ObservableLite
+  ObservableLite: ['filter', 'scan', 'take', 'skip', 'startWith', 'concat', 'merge'] as const,
+  
+  // Optics operations
+  Optics: ['over', 'preview', 'mapWithOptic'] as const,
+  
+  // ADT operations
+  ADT: ['match', 'mapMatch', 'bichain', 'matchTag', 'filterTag', 'extractValues', 'extractErrors'] as const
+} as const;
+
+/**
+ * Configuration for dual API generation
+ */
+export interface DualAPIConfig<F extends Kind<any[]>> {
+  /** The typeclass instance */
+  instance: any;
+  /** The type constructor name */
+  name: string;
+  /** Operations to generate dual APIs for */
+  operations: readonly string[];
+  /** Custom operation implementations */
+  customOperations?: Record<string, (instance: any) => any>;
+}
+
+/**
+ * Dual API result containing both instance and standalone functions
+ */
+export interface DualAPI<F extends Kind<any[]>> {
+  /** The original typeclass instance */
+  instance: any;
+  /** Data-last standalone functions */
+  [key: string]: any;
+  /** Helper to add fluent methods to a prototype */
+  addFluentMethods: (prototype: any) => void;
+}
+
+/**
+ * Generates both fluent instance methods and data-last standalone functions
+ */
+export function createDualAPI<F extends Kind<any[]>>(config: DualAPIConfig<F>): DualAPI<F> {
+  const { instance, name, operations, customOperations = {} } = config;
+  
+  const standaloneFunctions: Record<string, any> = {};
+  
+  // Generate data-last standalone functions
+  operations.forEach(op => {
+    if (customOperations[op]) {
+      standaloneFunctions[op] = customOperations[op](instance);
+    } else {
+      // Generate standard curried function
+      standaloneFunctions[op] = (...args: any[]) => {
+        return (fa: any) => {
+          if (typeof instance[op] === 'function') {
+            return instance[op](fa, ...args);
+          }
+          throw new Error(`Operation ${op} not found on ${name} instance`);
+        };
+      };
+    }
+  });
+  
+  const addFluentMethods = (prototype: any) => {
+    operations.forEach(op => {
+      if (prototype[op]) {
+        // Method already exists, skip
+        return;
+      }
+      
+      if (customOperations[op]) {
+        // Use custom implementation
+        prototype[op] = customOperations[op](instance);
+      } else {
+        // Generate standard fluent method
+        prototype[op] = function(...args: any[]) {
+          if (typeof instance[op] === 'function') {
+            return instance[op](this, ...args);
+          }
+          throw new Error(`Operation ${op} not found on ${name} instance`);
+        };
+      }
+    });
+  };
+  
+  return {
+    instance,
+    ...standaloneFunctions,
+    addFluentMethods
+  };
+}
 
 // ============================================================================
 // Part 1: Type-Level Detection and Branding
@@ -312,59 +426,80 @@ export function isTypeConstructor(value: any): boolean {
 export class DerivableInstanceRegistry {
   private instances = new Map<any, Map<string, any>>();
   private factories = new Map<string, (value: any) => any>();
-  
-  /**
-   * Register a factory for a typeclass
-   */
+  private dualAPIs = new Map<string, DualAPI<any>>();
+
   registerFactory(typeclass: string, factory: (value: any) => any): void {
     this.factories.set(typeclass, factory);
   }
-  
-  /**
-   * Get or create an instance for a value and typeclass
-   */
+
   getInstance(value: any, typeclass: string): any {
-    const valueKey = this.getKey(value);
+    const key = this.getKey(value);
+    let typeclassInstances = this.instances.get(key);
     
-    if (!this.instances.has(valueKey)) {
-      this.instances.set(valueKey, new Map());
+    if (!typeclassInstances) {
+      typeclassInstances = new Map();
+      this.instances.set(key, typeclassInstances);
     }
     
-    const valueInstances = this.instances.get(valueKey)!;
+    let instance = typeclassInstances.get(typeclass);
     
-    if (!valueInstances.has(typeclass)) {
+    if (!instance) {
       const factory = this.factories.get(typeclass);
       if (factory) {
-        const instance = factory(value);
-        valueInstances.set(typeclass, instance);
+        instance = factory(value);
+        typeclassInstances.set(typeclass, instance);
       }
     }
     
-    return valueInstances.get(typeclass);
+    return instance;
   }
-  
-  /**
-   * Get a unique key for a value
-   */
+
   private getKey(value: any): string {
-    if (value && value.constructor) {
-      return `${value.constructor.name}_${value.constructor.prototype ? 'proto' : 'static'}`;
+    if (value === null) return 'null';
+    if (value === undefined) return 'undefined';
+    if (typeof value === 'function') return value.name || 'function';
+    if (typeof value === 'object') {
+      return value.constructor?.name || 'object';
     }
     return typeof value;
   }
-  
-  /**
-   * Clear all instances
-   */
+
   clear(): void {
     this.instances.clear();
+    this.factories.clear();
+    this.dualAPIs.clear();
   }
-  
-  /**
-   * Get all registered factories
-   */
+
   getFactories(): Map<string, (value: any) => any> {
     return new Map(this.factories);
+  }
+
+  // Dual API Support
+  registerDualAPI(name: string, dualAPI: DualAPI<any>): void {
+    this.dualAPIs.set(name, dualAPI);
+  }
+
+  getDualAPI(name: string): DualAPI<any> | undefined {
+    return this.dualAPIs.get(name);
+  }
+
+  getAllDualAPIs(): Map<string, DualAPI<any>> {
+    return new Map(this.dualAPIs);
+  }
+
+  createDualAPIForInstance(instance: any, name: string, operations: readonly string[]): DualAPI<any> {
+    return createDualAPI({
+      instance,
+      name,
+      operations
+    });
+  }
+
+  addFluentMethodsToPrototype(prototype: any, name: string): void {
+    const dualAPI = this.dualAPIs.get(name);
+    if (dualAPI) {
+      dualAPI.addFluentMethods(prototype);
+    }
   }
 }
 

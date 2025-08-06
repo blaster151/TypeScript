@@ -647,3 +647,28 @@ export {
   to,
   sets
 } from './fp-optics'; 
+
+// Re-export HKT types
+export {
+  // Core HKT types
+  Kind, Kind1, Kind2, Kind3,
+  Apply, Type, TypeArgs, KindArity, KindResult,
+  
+  // Built-in type constructors
+  ArrayK, MaybeK, EitherK, TupleK, FunctionK, PromiseK, SetK, MapK, ListK,
+  ReaderK, WriterK, StateK,
+  ObservableLiteK, TaskEitherK,
+  
+  // Higher-order kinds
+  ComposeK, NatK,
+  
+  // Phantom types
+  Phantom, KindWithPhantom,
+  
+  // Type helpers
+  IsKind1, IsKind2, IsKind3,
+  FirstArg, SecondArg, ThirdArg,
+  
+  // Runtime utilities
+  isTypeConstructor, hasArity
+} from './fp-hkt'; 

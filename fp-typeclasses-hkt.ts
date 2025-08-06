@@ -118,39 +118,36 @@ export interface Foldable<F extends Kind1> {
 }
 
 // ============================================================================
-// Built-in Instances
+// Derived Instances
 // ============================================================================
 
-/**
- * Array Functor instance
- */
-export const ArrayFunctor: Functor<ArrayK> = {
-  map: <A, B>(fa: Array<A>, f: (a: A) => B): Array<B> => fa.map(f)
-};
+import { 
+  deriveInstances, 
+  deriveEqInstance, 
+  deriveOrdInstance, 
+  deriveShowInstance 
+} from './fp-derivation-helpers';
 
 /**
- * Array Applicative instance
+ * Array derived instances
  */
-export const ArrayApplicative: Applicative<ArrayK> = {
-  ...ArrayFunctor,
-  of: <A>(a: A): Array<A> => [a],
-  ap: <A, B>(fab: Array<(a: A) => B>, fa: Array<A>): Array<B> => 
-    fab.flatMap(f => fa.map(f))
-};
+export const ArrayInstances = deriveInstances({
+  functor: true,
+  applicative: true,
+  monad: true,
+  customMap: <A, B>(fa: Array<A>, f: (a: A) => B): Array<B> => fa.map(f),
+  customChain: <A, B>(fa: Array<A>, f: (a: A) => Array<B>): Array<B> => fa.flatMap(f)
+});
+
+export const ArrayFunctor = ArrayInstances.functor;
+export const ArrayApplicative = ArrayInstances.applicative;
+export const ArrayMonad = ArrayInstances.monad;
 
 /**
- * Array Monad instance
- */
-export const ArrayMonad: Monad<ArrayK> = {
-  ...ArrayApplicative,
-  chain: <A, B>(fa: Array<A>, f: (a: A) => Array<B>): Array<B> => fa.flatMap(f)
-};
-
-/**
- * Array Traversable instance
+ * Array Traversable instance (manual due to complexity)
  */
 export const ArrayTraversable: Traversable<ArrayK> = {
-  ...ArrayFunctor,
+  ...ArrayFunctor!,
   traverse: <G extends Kind1, A, B>(
     fa: Array<A>,
     f: (a: A) => Apply<G, [B]>
@@ -162,7 +159,7 @@ export const ArrayTraversable: Traversable<ArrayK> = {
 };
 
 /**
- * Array Foldable instance
+ * Array Foldable instance (manual due to complexity)
  */
 export const ArrayFoldable: Foldable<ArrayK> = {
   foldr: <A, B>(fa: Array<A>, f: (a: A, b: B) => B, z: B): B => 
@@ -172,69 +169,162 @@ export const ArrayFoldable: Foldable<ArrayK> = {
 };
 
 /**
- * Maybe Functor instance
+ * Array standard typeclass instances
  */
-export const MaybeFunctor: Functor<MaybeK> = {
-  map: <A, B>(fa: Maybe<A>, f: (a: A) => B): Maybe<B> => 
+export const ArrayEq = deriveEqInstance({
+  customEq: <A>(a: Array<A>, b: Array<A>): boolean => {
+    if (a.length !== b.length) return false;
+    return a.every((val, idx) => val === b[idx]);
+  }
+});
+
+export const ArrayOrd = deriveOrdInstance({
+  customOrd: <A>(a: Array<A>, b: Array<A>): number => {
+    const minLength = Math.min(a.length, b.length);
+    for (let i = 0; i < minLength; i++) {
+      if (a[i] < b[i]) return -1;
+      if (a[i] > b[i]) return 1;
+    }
+    return a.length - b.length;
+  }
+});
+
+export const ArrayShow = deriveShowInstance({
+  customShow: <A>(a: Array<A>): string => `[${a.map(x => JSON.stringify(x)).join(', ')}]`
+});
+
+/**
+ * Maybe derived instances
+ */
+export const MaybeInstances = deriveInstances({
+  functor: true,
+  applicative: true,
+  monad: true,
+  customMap: <A, B>(fa: Maybe<A>, f: (a: A) => B): Maybe<B> => 
+    fa === null || fa === undefined ? (fa as Maybe<B>) : f(fa),
+  customChain: <A, B>(fa: Maybe<A>, f: (a: A) => Maybe<B>): Maybe<B> => 
     fa === null || fa === undefined ? (fa as Maybe<B>) : f(fa)
-};
+});
+
+export const MaybeFunctor = MaybeInstances.functor;
+export const MaybeApplicative = MaybeInstances.applicative;
+export const MaybeMonad = MaybeInstances.monad;
 
 /**
- * Maybe Applicative instance
+ * Maybe standard typeclass instances
  */
-export const MaybeApplicative: Applicative<MaybeK> = {
-  ...MaybeFunctor,
-  of: <A>(a: A): Maybe<A> => a,
-  ap: <A, B>(fab: Maybe<(a: A) => B>, fa: Maybe<A>): Maybe<B> => 
-    fab === null || fab === undefined || fa === null || fa === undefined 
-      ? null 
-      : fab(fa)
-};
+export const MaybeEq = deriveEqInstance({
+  customEq: <A>(a: Maybe<A>, b: Maybe<A>): boolean => {
+    if (a === null && b === null) return true;
+    if (a === undefined && b === undefined) return true;
+    if (a === null || a === undefined || b === null || b === undefined) return false;
+    return a === b;
+  }
+});
+
+export const MaybeOrd = deriveOrdInstance({
+  customOrd: <A>(a: Maybe<A>, b: Maybe<A>): number => {
+    if (a === null && b === null) return 0;
+    if (a === null) return -1;
+    if (b === null) return 1;
+    if (a === undefined && b === undefined) return 0;
+    if (a === undefined) return -1;
+    if (b === undefined) return 1;
+    if (a < b) return -1;
+    if (a > b) return 1;
+    return 0;
+  }
+});
+
+export const MaybeShow = deriveShowInstance({
+  customShow: <A>(a: Maybe<A>): string => 
+    a === null || a === undefined ? 'Nothing' : `Just(${JSON.stringify(a)})`
+});
 
 /**
- * Maybe Monad instance
+ * Either derived instances
  */
-export const MaybeMonad: Monad<MaybeK> = {
-  ...MaybeApplicative,
-  chain: <A, B>(fa: Maybe<A>, f: (a: A) => Maybe<B>): Maybe<B> => 
-    fa === null || fa === undefined ? (fa as Maybe<B>) : f(fa)
-};
-
-/**
- * Either Bifunctor instance
- */
-export const EitherBifunctor: Bifunctor<EitherK> = {
-  bimap: <A, B, C, D>(
+export const EitherInstances = deriveInstances({
+  bifunctor: true,
+  customBimap: <A, B, C, D>(
     fab: Either<A, B>,
     f: (a: A) => C,
     g: (b: B) => D
   ): Either<C, D> => 
-    'left' in fab ? { left: f(fab.left) } : { right: g(fab.right) },
-  
-  mapLeft: <A, B, C>(fab: Either<A, B>, f: (a: A) => C): Either<C, B> => 
-    'left' in fab ? { left: f(fab.left) } : fab,
-  
-  mapRight: <A, B, D>(fab: Either<A, B>, g: (b: B) => D): Either<A, D> => 
-    'right' in fab ? { right: g(fab.right) } : fab
-};
+    'left' in fab ? { left: f(fab.left) } : { right: g(fab.right) }
+});
+
+export const EitherBifunctor = EitherInstances.bifunctor;
 
 /**
- * Tuple Bifunctor instance
+ * Either standard typeclass instances
  */
-export const TupleBifunctor: Bifunctor<TupleK> = {
-  bimap: <A, B, C, D>(
+export const EitherEq = deriveEqInstance({
+  customEq: <A, B>(a: Either<A, B>, b: Either<A, B>): boolean => {
+    if ('left' in a && 'left' in b) return a.left === b.left;
+    if ('right' in a && 'right' in b) return a.right === b.right;
+    return false;
+  }
+});
+
+export const EitherOrd = deriveOrdInstance({
+  customOrd: <A, B>(a: Either<A, B>, b: Either<A, B>): number => {
+    if ('left' in a && 'left' in b) {
+      if (a.left < b.left) return -1;
+      if (a.left > b.left) return 1;
+      return 0;
+    }
+    if ('right' in a && 'right' in b) {
+      if (a.right < b.right) return -1;
+      if (a.right > b.right) return 1;
+      return 0;
+    }
+    return 'left' in a ? -1 : 1;
+  }
+});
+
+export const EitherShow = deriveShowInstance({
+  customShow: <A, B>(a: Either<A, B>): string => 
+    'left' in a ? `Left(${JSON.stringify(a.left)})` : `Right(${JSON.stringify(a.right)})`
+});
+
+/**
+ * Tuple derived instances
+ */
+export const TupleInstances = deriveInstances({
+  bifunctor: true,
+  customBimap: <A, B, C, D>(
     fab: [A, B],
     f: (a: A) => C,
     g: (b: B) => D
-  ): [C, D] => [f(fab[0]), g(fab[1])],
-  
-  mapLeft: <A, B, C>(fab: [A, B], f: (a: A) => C): [C, B] => [f(fab[0]), fab[1]],
-  
-  mapRight: <A, B, D>(fab: [A, B], g: (b: B) => D): [A, D] => [fab[0], g(fab[1])]
-};
+  ): [C, D] => [f(fab[0]), g(fab[1])]
+});
+
+export const TupleBifunctor = TupleInstances.bifunctor;
 
 /**
- * Function Profunctor instance
+ * Tuple standard typeclass instances
+ */
+export const TupleEq = deriveEqInstance({
+  customEq: <A, B>(a: [A, B], b: [A, B]): boolean => 
+    a[0] === b[0] && a[1] === b[1]
+});
+
+export const TupleOrd = deriveOrdInstance({
+  customOrd: <A, B>(a: [A, B], b: [A, B]): number => {
+    const first = a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
+    if (first !== 0) return first;
+    return a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0;
+  }
+});
+
+export const TupleShow = deriveShowInstance({
+  customShow: <A, B>(a: [A, B]): string => 
+    `(${JSON.stringify(a[0])}, ${JSON.stringify(a[1])})`
+});
+
+/**
+ * Function Profunctor instance (kept manual due to complexity)
  */
 export const FunctionProfunctor: Profunctor<FunctionK> = {
   dimap: <A, B, C, D>(
@@ -247,7 +337,7 @@ export const FunctionProfunctor: Profunctor<FunctionK> = {
   lmap: <A, B, C>(p: (a: A) => B, f: (c: C) => A): (c: C) => B => 
     (c: C) => p(f(c)),
   
-  rmap: <A, B, D>(p: (a: A) => B, g: (b: B) => D): (a: A) => D => 
+  rmap: <A, B, D>(p: (a: A) => B, g: (b: B) => D): (a: A) => D =>
     (a: A) => g(p(a))
 };
 

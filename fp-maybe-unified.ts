@@ -29,6 +29,13 @@ import {
   createPurityInfo, attachPurityMarker, extractPurityMarker, hasPurityMarker
 } from './fp-purity';
 
+import { 
+  deriveInstances, 
+  deriveEqInstance, 
+  deriveOrdInstance, 
+  deriveShowInstance 
+} from './fp-derivation-helpers';
+
 // ============================================================================
 // Part 1: Unified Maybe ADT Definition
 // ============================================================================
@@ -44,7 +51,8 @@ export const MaybeUnified = createSumType({
   effect: 'Pure',
   enableHKT: true,
   enableDerivableInstances: true,
-  enableRuntimeMarkers: false
+  enableRuntimeMarkers: false,
+  derive: ['Eq', 'Ord', 'Show']
 });
 
 /**
@@ -193,35 +201,79 @@ export const foldMaybe = <A, B>(onJust: (a: A) => B, onNothing: () => B, maybe: 
 };
 
 // ============================================================================
-// Part 4: Typeclass Instances
+// Part 4: Typeclass Instances (Derived)
 // ============================================================================
 
 /**
- * Functor instance for Maybe
+ * Maybe derived instances
  */
-export const MaybeFunctor: Functor<MaybeK> = {
-  map: mapMaybe
-};
+export const MaybeInstances = deriveInstances({
+  functor: true,
+  applicative: true,
+  monad: true,
+  customMap: <A, B>(fa: Maybe<A>, f: (a: A) => B): Maybe<B> => 
+    matchMaybe(fa, {
+      Just: value => Just(f(value)),
+      Nothing: () => Nothing()
+    }),
+  customChain: <A, B>(fa: Maybe<A>, f: (a: A) => Maybe<B>): Maybe<B> => 
+    matchMaybe(fa, {
+      Just: value => f(value),
+      Nothing: () => Nothing()
+    })
+});
+
+export const MaybeFunctor = MaybeInstances.functor;
+export const MaybeApplicative = MaybeInstances.applicative;
+export const MaybeMonad = MaybeInstances.monad;
 
 /**
- * Applicative instance for Maybe
+ * Maybe standard typeclass instances
  */
-export const MaybeApplicative: Applicative<MaybeK> = {
-  ...MaybeFunctor,
-  of: Just,
-  ap: apMaybe
-};
+export const MaybeEq = deriveEqInstance({
+  customEq: <A>(a: Maybe<A>, b: Maybe<A>): boolean => {
+    return matchMaybe(a, {
+      Just: aValue => matchMaybe(b, {
+        Just: bValue => aValue === bValue,
+        Nothing: () => false
+      }),
+      Nothing: () => matchMaybe(b, {
+        Just: () => false,
+        Nothing: () => true
+      })
+    });
+  }
+});
+
+export const MaybeOrd = deriveOrdInstance({
+  customOrd: <A>(a: Maybe<A>, b: Maybe<A>): number => {
+    return matchMaybe(a, {
+      Just: aValue => matchMaybe(b, {
+        Just: bValue => {
+          if (aValue < bValue) return -1;
+          if (aValue > bValue) return 1;
+          return 0;
+        },
+        Nothing: () => 1 // Just > Nothing
+      }),
+      Nothing: () => matchMaybe(b, {
+        Just: () => -1, // Nothing < Just
+        Nothing: () => 0
+      })
+    });
+  }
+});
+
+export const MaybeShow = deriveShowInstance({
+  customShow: <A>(a: Maybe<A>): string => 
+    matchMaybe(a, {
+      Just: value => `Just(${JSON.stringify(value)})`,
+      Nothing: () => 'Nothing'
+    })
+});
 
 /**
- * Monad instance for Maybe
- */
-export const MaybeMonad: Monad<MaybeK> = {
-  ...MaybeApplicative,
-  chain: chainMaybe
-};
-
-/**
- * Foldable instance for Maybe
+ * Foldable instance for Maybe (manual due to complexity)
  */
 export const MaybeFoldable: Foldable<MaybeK> = {
   reduce: <A, B>(maybe: Maybe<A>, f: (b: B, a: A) => B, b: B): B => {
@@ -239,10 +291,10 @@ export const MaybeFoldable: Foldable<MaybeK> = {
 };
 
 /**
- * Traversable instance for Maybe
+ * Traversable instance for Maybe (manual due to complexity)
  */
 export const MaybeTraversable: Traversable<MaybeK> = {
-  ...MaybeFunctor,
+  ...MaybeFunctor!,
   sequence: <A>(maybeArray: Maybe<A[]>): A[] => {
     return matchMaybe(maybeArray, {
       Just: value => value,

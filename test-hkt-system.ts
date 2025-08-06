@@ -45,62 +45,99 @@ export interface TreeK extends Kind1 {
   readonly type: Tree<this['arg0']>;
 }
 
+// ============================================================================
+// Tree Typeclass Instances (Derived)
+// ============================================================================
+
+import { 
+  deriveInstances, 
+  deriveEqInstance, 
+  deriveOrdInstance, 
+  deriveShowInstance 
+} from './fp-derivation-helpers';
+
 /**
- * Tree Functor instance
+ * Tree derived instances
  */
-export const TreeFunctor: Functor<TreeK> = {
-  map: <A, B>(fa: Tree<A>, f: (a: A) => B): Tree<B> => {
+export const TreeInstances = deriveInstances({
+  functor: true,
+  applicative: true,
+  monad: true,
+  customMap: <A, B>(fa: Tree<A>, f: (a: A) => B): Tree<B> => {
     switch (fa.type) {
       case 'Leaf':
         return { type: 'Leaf', value: f(fa.value) };
       case 'Node':
         return {
           type: 'Node',
-          left: TreeFunctor.map(fa.left, f),
-          right: TreeFunctor.map(fa.right, f)
+          left: TreeInstances.functor!.map(fa.left, f),
+          right: TreeInstances.functor!.map(fa.right, f)
         };
     }
-  }
-};
-
-/**
- * Tree Applicative instance
- */
-export const TreeApplicative: Applicative<TreeK> = {
-  ...TreeFunctor,
-  of: <A>(a: A): Tree<A> => ({ type: 'Leaf', value: a }),
-  ap: <A, B>(fab: Tree<(a: A) => B>, fa: Tree<A>): Tree<B> => {
-    switch (fab.type) {
-      case 'Leaf':
-        return TreeFunctor.map(fa, fab.value);
-      case 'Node':
-        return {
-          type: 'Node',
-          left: TreeApplicative.ap(fab.left, fa),
-          right: TreeApplicative.ap(fab.right, fa)
-        };
-    }
-  }
-};
-
-/**
- * Tree Monad instance
- */
-export const TreeMonad: Monad<TreeK> = {
-  ...TreeApplicative,
-  chain: <A, B>(fa: Tree<A>, f: (a: A) => Tree<B>): Tree<B> => {
+  },
+  customChain: <A, B>(fa: Tree<A>, f: (a: A) => Tree<B>): Tree<B> => {
     switch (fa.type) {
       case 'Leaf':
         return f(fa.value);
       case 'Node':
         return {
           type: 'Node',
-          left: TreeMonad.chain(fa.left, f),
-          right: TreeMonad.chain(fa.right, f)
+          left: TreeInstances.monad!.chain(fa.left, f),
+          right: TreeInstances.monad!.chain(fa.right, f)
         };
     }
   }
-};
+});
+
+export const TreeFunctor = TreeInstances.functor;
+export const TreeApplicative = TreeInstances.applicative;
+export const TreeMonad = TreeInstances.monad;
+
+/**
+ * Tree standard typeclass instances
+ */
+export const TreeEq = deriveEqInstance({
+  customEq: <A>(a: Tree<A>, b: Tree<A>): boolean => {
+    if (a.type !== b.type) return false;
+    switch (a.type) {
+      case 'Leaf':
+        return b.type === 'Leaf' && a.value === b.value;
+      case 'Node':
+        return b.type === 'Node' && 
+               TreeEq.equals(a.left, b.left) && 
+               TreeEq.equals(a.right, b.right);
+    }
+  }
+});
+
+export const TreeOrd = deriveOrdInstance({
+  customOrd: <A>(a: Tree<A>, b: Tree<A>): number => {
+    if (a.type !== b.type) {
+      return a.type === 'Leaf' ? -1 : 1;
+    }
+    switch (a.type) {
+      case 'Leaf':
+        return b.type === 'Leaf' ? 
+          (a.value < b.value ? -1 : a.value > b.value ? 1 : 0) : -1;
+      case 'Node':
+        if (b.type !== 'Node') return 1;
+        const leftComp = TreeOrd.compare(a.left, b.left);
+        if (leftComp !== 0) return leftComp;
+        return TreeOrd.compare(a.right, b.right);
+    }
+  }
+});
+
+export const TreeShow = deriveShowInstance({
+  customShow: <A>(a: Tree<A>): string => {
+    switch (a.type) {
+      case 'Leaf':
+        return `Leaf(${JSON.stringify(a.value)})`;
+      case 'Node':
+        return `Node(${TreeShow.show(a.left)}, ${TreeShow.show(a.right)})`;
+    }
+  }
+});
 
 // ============================================================================
 // Higher-Order Kind Examples

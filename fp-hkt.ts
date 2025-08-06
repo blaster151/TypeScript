@@ -3,6 +3,9 @@
  * 
  * This module provides the foundational utilities for treating type constructors
  * as first-class values, enabling type-safe higher-order type operations.
+ * 
+ * Enhanced with Higher-Order Kinds (HOKs) support for representing functions
+ * from one kind to another.
  */
 
 // ============================================================================
@@ -63,6 +66,105 @@ export type Apply<F extends Kind<any>, Args extends readonly Type[]> =
   F extends Kind<Args> ? F['type'] : never;
 
 // ============================================================================
+// Higher-Order Kinds (HOKs) Support
+// ============================================================================
+
+/**
+ * KindAny - represents a kind of any arity
+ * This is the base type for Higher-Order Kinds
+ */
+export interface KindAny extends Kind<readonly Type[]> {
+  readonly type: Type;
+}
+
+/**
+ * Kind1Any - represents a unary kind (for compatibility)
+ */
+export interface Kind1Any extends KindAny {
+  readonly arg0: Type;
+}
+
+/**
+ * Kind2Any - represents a binary kind (for compatibility)
+ */
+export interface Kind2Any extends KindAny {
+  readonly arg0: Type;
+  readonly arg1: Type;
+}
+
+/**
+ * HigherKind - represents a function from one kind to another
+ * This is the core type for Higher-Order Kinds
+ */
+export interface HigherKind<In extends KindAny, Out extends KindAny> {
+  readonly __input: In;
+  readonly __output: Out;
+  readonly type: Type;
+}
+
+/**
+ * Type-level function application for Higher-Kinds
+ * Applies a HigherKind to input arguments and returns the output kind
+ */
+export type ApplyHigherKind<F extends HigherKind<any, any>, Args extends readonly Type[]> = 
+  F extends HigherKind<infer In, infer Out> 
+    ? In extends Kind<Args> 
+      ? Out 
+      : never 
+    : never;
+
+/**
+ * Extract the input kind from a HigherKind
+ */
+export type KindInput<F extends HigherKind<any, any>> = F['__input'];
+
+/**
+ * Extract the output kind from a HigherKind
+ */
+export type KindOutput<F extends HigherKind<any, any>> = F['__output'];
+
+/**
+ * Check if two kinds are compatible (same arity)
+ */
+export type IsKindCompatible<F extends KindAny, G extends KindAny> = 
+  F extends Kind<infer ArgsF> 
+    ? G extends Kind<infer ArgsG> 
+      ? ArgsF['length'] extends ArgsG['length'] 
+        ? true 
+        : false 
+      : false 
+    : false;
+
+/**
+ * Check if a HigherKind is compatible with a given input kind
+ */
+export type IsHigherKindCompatible<F extends HigherKind<any, any>, In extends KindAny> = 
+  IsKindCompatible<KindInput<F>, In>;
+
+/**
+ * Compose two HigherKinds
+ * F: A -> B, G: B -> C => ComposeHOK<F, G>: A -> C
+ */
+export interface ComposeHOK<F extends HigherKind<any, any>, G extends HigherKind<any, any>> 
+  extends HigherKind<KindInput<F>, KindOutput<G>> {
+  readonly __composed: [F, G];
+}
+
+/**
+ * Identity HigherKind - maps any kind to itself
+ */
+export interface IdentityHOK<In extends KindAny> extends HigherKind<In, In> {
+  readonly __identity: true;
+}
+
+/**
+ * Constant HigherKind - maps any input kind to a constant output kind
+ */
+export interface ConstHOK<In extends KindAny, Out extends KindAny> extends HigherKind<In, Out> {
+  readonly __const: Out;
+}
+
+// ============================================================================
 // Kind Shorthands for Common Arities
 // ============================================================================
 
@@ -91,6 +193,38 @@ export interface Kind3 extends Kind<[Type, Type, Type]> {
   readonly arg1: Type;
   readonly arg2: Type;
   readonly type: Type;
+}
+
+// ============================================================================
+// Higher-Order Kind Shorthands
+// ============================================================================
+
+/**
+ * Unary to Unary HigherKind (e.g., Functor)
+ */
+export interface HOK1<In extends Kind1, Out extends Kind1> extends HigherKind<In, Out> {
+  readonly __arity: 1;
+}
+
+/**
+ * Binary to Binary HigherKind (e.g., Bifunctor)
+ */
+export interface HOK2<In extends Kind2, Out extends Kind2> extends HigherKind<In, Out> {
+  readonly __arity: 2;
+}
+
+/**
+ * Unary to Binary HigherKind (e.g., Applicative)
+ */
+export interface HOK1to2<In extends Kind1, Out extends Kind2> extends HigherKind<In, Out> {
+  readonly __arity: '1to2';
+}
+
+/**
+ * Binary to Unary HigherKind (e.g., Contravariant)
+ */
+export interface HOK2to1<In extends Kind2, Out extends Kind1> extends HigherKind<In, Out> {
+  readonly __arity: '2to1';
 }
 
 // ============================================================================
@@ -205,26 +339,15 @@ export interface StateK extends Kind2 {
  */
 export interface ObservableLiteK extends Kind1 {
   readonly type: any; // Will be properly typed when imported
-}
-
-// ============================================================================
-// Higher-Order Kinds (Optional Extra Credit)
-// ============================================================================
-
-/**
- * Higher-order kind that takes a kind and returns a kind
- * Example: Compose<F, G> where F and G are both Kind1
- */
-export interface ComposeK<F extends Kind1, G extends Kind1> extends Kind1 {
-  readonly type: Apply<F, [Apply<G, [this['arg0']]>]>;
+  readonly __effect: 'Async'; // Mark as async for purity tracking
 }
 
 /**
- * Higher-order kind for natural transformations
- * Example: Nat<F, G> where F and G are both Kind1
+ * TaskEither kind - represents the TaskEither type constructor
  */
-export interface NatK<F extends Kind1, G extends Kind1> extends Kind1 {
-  readonly type: (fa: Apply<F, [this['arg0']]>) => Apply<G, [this['arg0']]>;
+export interface TaskEitherK extends Kind2 {
+  readonly type: any; // Will be properly typed when imported
+  readonly __effect: 'Async'; // Mark as async for purity tracking
 }
 
 // ============================================================================
@@ -239,7 +362,7 @@ export interface Phantom<T> {
 }
 
 /**
- * Kind with phantom type parameter
+ * Kind with phantom type parameter for additional type-level information
  */
 export interface KindWithPhantom<Args extends readonly Type[], PhantomType> extends Kind<Args> {
   readonly __phantom: PhantomType;

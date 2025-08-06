@@ -25,61 +25,60 @@ import {
 } from './fp-hkt';
 
 import {
-  Functor, Applicative, Monad, Bifunctor, Profunctor, Traversable, Foldable,
+  Functor, Applicative, Monad, Bifunctor, Traversable, Foldable,
   deriveFunctor, deriveApplicative, deriveMonad,
   lift2, composeK, sequence, traverse
 } from './fp-typeclasses-hkt';
 
 import {
-  EffectTag, EffectOf, Pure, IO, Async, Effect,
-  isPure, isIO, isAsync, getEffectTag,
-  PurityContext, PurityError, PurityResult,
+  EffectTag, EffectOf, Pure, IO, Async,
   createPurityInfo, attachPurityMarker, extractPurityMarker, hasPurityMarker
 } from './fp-purity';
 
 import {
-  GADT, Expr, ExprK, evaluate, MaybeGADT, MaybeGADTK, EitherGADT, EitherGADTK
-} from './fp-gadt-enhanced';
+  deriveInstances, deriveEqInstance, deriveOrdInstance, deriveShowInstance,
+  Eq, Ord, Show
+} from './fp-derivation-helpers';
 
 // ============================================================================
-// Part 1: Type Definitions and Utilities
+// Type Definitions
 // ============================================================================
 
 /**
- * Base type for all ADT variants
+ * ADT variant with tag
  */
 export interface ADTVariant {
   readonly tag: string;
 }
 
 /**
- * Constructor function type for sum type variants
+ * Constructor function type
  */
 export type Constructor<T> = T extends (...args: infer Args) => infer Result
   ? (...args: Args) => Result & ADTVariant
   : never;
 
 /**
- * Constructor specification for sum types
+ * Constructor specification
  */
 export type ConstructorSpec = Record<string, (...args: any[]) => any>;
 
 /**
- * Instance type of a sum type
+ * Sum type instance
  */
 export type SumTypeInstance<Spec extends ConstructorSpec> = {
   [K in keyof Spec]: ReturnType<Spec[K]> & ADTVariant;
 }[keyof Spec];
 
 /**
- * Matcher function type for sum types
+ * Pattern matcher type
  */
 export type Matcher<Spec extends ConstructorSpec, R> = {
   [K in keyof Spec]: (value: ReturnType<Spec[K]> & ADTVariant) => R;
 };
 
 /**
- * Product type fields specification
+ * Product type fields
  */
 export type ProductFields = Record<string, any>;
 
@@ -89,21 +88,21 @@ export type ProductFields = Record<string, any>;
 export type ProductTypeInstance<Fields extends ProductFields> = Fields;
 
 /**
- * HKT kind for sum types
+ * Sum type HKT
  */
 export interface SumTypeK<Spec extends ConstructorSpec> extends Kind1 {
   readonly type: SumTypeInstance<Spec>;
 }
 
 /**
- * HKT kind for product types
+ * Product type HKT
  */
 export interface ProductTypeK<Fields extends ProductFields> extends Kind1 {
   readonly type: ProductTypeInstance<Fields>;
 }
 
 /**
- * Purity configuration for ADT builders
+ * ADT purity configuration
  */
 export interface ADTPurityConfig {
   readonly effect?: EffectTag;
@@ -111,29 +110,27 @@ export interface ADTPurityConfig {
 }
 
 /**
- * Sum type builder configuration
+ * Sum type configuration
  */
 export interface SumTypeConfig extends ADTPurityConfig {
   readonly name?: string;
   readonly enableHKT?: boolean;
   readonly enableDerivableInstances?: boolean;
+  readonly derive?: ('Eq' | 'Ord' | 'Show')[];
 }
 
 /**
- * Product type builder configuration
+ * Product type configuration
  */
 export interface ProductTypeConfig extends ADTPurityConfig {
   readonly name?: string;
   readonly enableHKT?: boolean;
   readonly enableDerivableInstances?: boolean;
+  readonly derive?: ('Eq' | 'Ord' | 'Show')[];
 }
 
-// ============================================================================
-// Part 2: Sum Type Builder
-// ============================================================================
-
 /**
- * Sum type builder result
+ * Sum type builder interface
  */
 export interface SumTypeBuilder<Spec extends ConstructorSpec> {
   // Type information
@@ -182,31 +179,91 @@ export interface SumTypeBuilder<Spec extends ConstructorSpec> {
   readonly createWithEffect: <E extends EffectTag>(
     effect: E
   ) => SumTypeBuilder<Spec> & { effect: E };
+
+  // Derived typeclass instances
+  readonly Eq?: Eq<SumTypeInstance<Spec>>;
+  readonly Ord?: Ord<SumTypeInstance<Spec>>;
+  readonly Show?: Show<SumTypeInstance<Spec>>;
 }
 
 /**
- * Create a sum type with type-safe constructors and pattern matching
- * 
- * @param spec Constructor specification for each variant
- * @param config Configuration options
- * @returns Sum type builder with constructors and matchers
+ * Product type builder interface
+ */
+export interface ProductTypeBuilder<Fields extends ProductFields> {
+  // Type information
+  readonly Type: new () => ProductTypeInstance<Fields>;
+  readonly Instance: ProductTypeInstance<Fields>;
+  
+  // Constructor
+  readonly of: (fields: Fields) => ProductTypeInstance<Fields>;
+  
+  // Field accessors
+  readonly get: <K extends keyof Fields>(
+    instance: ProductTypeInstance<Fields>,
+    key: K
+  ) => Fields[K];
+  
+  // Field updater
+  readonly set: <K extends keyof Fields>(
+    instance: ProductTypeInstance<Fields>,
+    key: K,
+    value: Fields[K]
+  ) => ProductTypeInstance<Fields>;
+  
+  // Field updater with function
+  readonly update: <K extends keyof Fields>(
+    instance: ProductTypeInstance<Fields>,
+    key: K,
+    updater: (value: Fields[K]) => Fields[K]
+  ) => ProductTypeInstance<Fields>;
+  
+  // HKT integration
+  readonly HKT: ProductTypeK<Fields>;
+  
+  // Purity information
+  readonly effect: EffectTag;
+  readonly isPure: boolean;
+  readonly isImpure: boolean;
+  
+  // Utility functions
+  readonly keys: () => (keyof Fields)[];
+  readonly values: (instance: ProductTypeInstance<Fields>) => Fields[keyof Fields][];
+  readonly entries: (instance: ProductTypeInstance<Fields>) => [keyof Fields, Fields[keyof Fields]][];
+  
+  readonly createWithEffect: <E extends EffectTag>(
+    effect: E
+  ) => ProductTypeBuilder<Fields> & { effect: E };
+
+  // Derived typeclass instances
+  readonly Eq?: Eq<ProductTypeInstance<Fields>>;
+  readonly Ord?: Ord<ProductTypeInstance<Fields>>;
+  readonly Show?: Show<ProductTypeInstance<Fields>>;
+}
+
+// ============================================================================
+// Sum Type Builder
+// ============================================================================
+
+/**
+ * Creates a sum type builder with automatic typeclass derivation
  * 
  * @example
  * ```typescript
  * const Maybe = createSumType({
- *   Just: (value: number) => ({ value }),
+ *   Just: (value: any) => ({ value }),
  *   Nothing: () => ({})
+ * }, {
+ *   derive: ['Eq', 'Ord', 'Show']
  * });
  * 
- * type Maybe<A> = InstanceType<typeof Maybe.Type<A>>;
+ * const just1 = Maybe.constructors.Just(42);
+ * const just2 = Maybe.constructors.Just(42);
+ * const nothing = Maybe.constructors.Nothing();
  * 
- * const m1 = Maybe.constructors.Just(42);
- * const m2 = Maybe.constructors.Nothing();
- * 
- * const result = Maybe.match(m1, {
- *   Just: x => `Got ${x.value}`,
- *   Nothing: () => "None"
- * });
+ * // Use derived instances
+ * Maybe.Eq?.equals(just1, just2); // true
+ * Maybe.Ord?.compare(just1, nothing); // > 0
+ * Maybe.Show?.show(just1); // "Just({ value: 42 })"
  * ```
  */
 export function createSumType<Spec extends ConstructorSpec>(
@@ -217,7 +274,8 @@ export function createSumType<Spec extends ConstructorSpec>(
     effect = 'Pure',
     enableRuntimeMarkers = false,
     enableHKT = true,
-    enableDerivableInstances = true
+    enableDerivableInstances = true,
+    derive = []
   } = config;
   
   // Create constructors with proper typing
@@ -298,11 +356,114 @@ export function createSumType<Spec extends ConstructorSpec>(
   const HKT: SumTypeK<Spec> = {
     type: {} as SumTypeInstance<Spec>
   } as any;
+
+  // Derived typeclass instances
+  let derivedInstances: {
+    Eq?: Eq<SumTypeInstance<Spec>>;
+    Ord?: Ord<SumTypeInstance<Spec>>;
+    Show?: Show<SumTypeInstance<Spec>>;
+  } = {};
+
+  if (derive.length > 0) {
+    // Derive Eq instance
+    if (derive.includes('Eq')) {
+      derivedInstances.Eq = deriveEqInstance({
+        customEq: (a: SumTypeInstance<Spec>, b: SumTypeInstance<Spec>): boolean => {
+          if (a.tag !== b.tag) return false;
+          
+          // Compare payloads structurally
+          const aKeys = Object.keys(a).filter(k => k !== 'tag');
+          const bKeys = Object.keys(b).filter(k => k !== 'tag');
+          
+          if (aKeys.length !== bKeys.length) return false;
+          
+          for (const key of aKeys) {
+            if (!(key in b)) return false;
+            if (a[key as keyof typeof a] !== b[key as keyof typeof b]) return false;
+          }
+          
+          return true;
+        }
+      });
+    }
+
+    // Derive Ord instance
+    if (derive.includes('Ord')) {
+      derivedInstances.Ord = deriveOrdInstance({
+        customOrd: (a: SumTypeInstance<Spec>, b: SumTypeInstance<Spec>): number => {
+          // First compare tags
+          if (a.tag < b.tag) return -1;
+          if (a.tag > b.tag) return 1;
+          
+          // If tags are equal, compare payloads
+          const aKeys = Object.keys(a).filter(k => k !== 'tag').sort();
+          const bKeys = Object.keys(b).filter(k => k !== 'tag').sort();
+          
+          // Compare keys first
+          for (let i = 0; i < Math.min(aKeys.length, bKeys.length); i++) {
+            if (aKeys[i] < bKeys[i]) return -1;
+            if (aKeys[i] > bKeys[i]) return 1;
+          }
+          
+          if (aKeys.length < bKeys.length) return -1;
+          if (aKeys.length > bKeys.length) return 1;
+          
+          // Compare values
+          for (const key of aKeys) {
+            const aVal = a[key as keyof typeof a];
+            const bVal = b[key as keyof typeof b];
+            
+            if (aVal < bVal) return -1;
+            if (aVal > bVal) return 1;
+          }
+          
+          return 0;
+        }
+      });
+    }
+
+    // Derive Show instance
+    if (derive.includes('Show')) {
+      derivedInstances.Show = deriveShowInstance({
+        customShow: (a: SumTypeInstance<Spec>): string => {
+          const tag = a.tag;
+          const payload = Object.keys(a)
+            .filter(k => k !== 'tag')
+            .reduce((acc, key) => {
+              acc[key] = a[key as keyof typeof a];
+              return acc;
+            }, {} as Record<string, any>);
+          
+          const payloadStr = Object.keys(payload).length > 0 
+            ? `(${JSON.stringify(payload)})` 
+            : '';
+          
+          return `${tag}${payloadStr}`;
+        }
+      });
+    }
+
+    // Register with derivable instances system if enabled
+    if (enableDerivableInstances && typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
+      const registry = (globalThis as any).__FP_REGISTRY;
+      const typeName = config.name || 'SumType';
+      
+      if (derivedInstances.Eq) {
+        registry.register(`${typeName}Eq`, derivedInstances.Eq);
+      }
+      if (derivedInstances.Ord) {
+        registry.register(`${typeName}Ord`, derivedInstances.Ord);
+      }
+      if (derivedInstances.Show) {
+        registry.register(`${typeName}Show`, derivedInstances.Show);
+      }
+    }
+  }
   
-  const builder: SumTypeBuilder<Spec> = {
+  return {
     Type: (class {
       constructor() {
-        throw new Error('SumType.Type is a type constructor, not a runtime constructor');
+        throw new Error('SumType is a type constructor, not a value constructor');
       }
     } as any),
     Instance: {} as SumTypeInstance<Spec>,
@@ -316,69 +477,14 @@ export function createSumType<Spec extends ConstructorSpec>(
     isImpure: effect !== 'Pure',
     isVariant,
     getTag,
-    createWithEffect
+    createWithEffect,
+    ...derivedInstances
   };
-  
-  // Auto-register with derivable instances if enabled
-  if (enableDerivableInstances) {
-    registerSumTypeForDerivableInstances(builder);
-  }
-  
-  return builder;
 }
 
 // ============================================================================
-// Part 3: Product Type Builder
+// Product Type Builder
 // ============================================================================
-
-/**
- * Product type builder result
- */
-export interface ProductTypeBuilder<Fields extends ProductFields> {
-  // Type information
-  readonly Type: new () => ProductTypeInstance<Fields>;
-  readonly Instance: ProductTypeInstance<Fields>;
-  
-  // Constructor
-  readonly of: (fields: Fields) => ProductTypeInstance<Fields>;
-  
-  // Field accessors
-  readonly get: <K extends keyof Fields>(
-    instance: ProductTypeInstance<Fields>,
-    key: K
-  ) => Fields[K];
-  
-  // Field updater
-  readonly set: <K extends keyof Fields>(
-    instance: ProductTypeInstance<Fields>,
-    key: K,
-    value: Fields[K]
-  ) => ProductTypeInstance<Fields>;
-  
-  // Field updater with function
-  readonly update: <K extends keyof Fields>(
-    instance: ProductTypeInstance<Fields>,
-    key: K,
-    updater: (value: Fields[K]) => Fields[K]
-  ) => ProductTypeInstance<Fields>;
-  
-  // HKT integration
-  readonly HKT: ProductTypeK<Fields>;
-  
-  // Purity information
-  readonly effect: EffectTag;
-  readonly isPure: boolean;
-  readonly isImpure: boolean;
-  
-  // Utility functions
-  readonly keys: () => (keyof Fields)[];
-  readonly values: (instance: ProductTypeInstance<Fields>) => Fields[keyof Fields][];
-  readonly entries: (instance: ProductTypeInstance<Fields>) => [keyof Fields, Fields[keyof Fields]][];
-  
-  readonly createWithEffect: <E extends EffectTag>(
-    effect: E
-  ) => ProductTypeBuilder<Fields> & { effect: E };
-}
 
 /**
  * Create a product type with type-safe field access and updates
@@ -404,7 +510,8 @@ export function createProductType<Fields extends ProductFields>(
     effect = 'Pure',
     enableRuntimeMarkers = false,
     enableHKT = true,
-    enableDerivableInstances = true
+    enableDerivableInstances = true,
+    derive = []
   } = config;
   
   // Constructor
@@ -480,11 +587,102 @@ export function createProductType<Fields extends ProductFields>(
   const HKT: ProductTypeK<Fields> = {
     type: {} as ProductTypeInstance<Fields>
   } as any;
+
+  // Derived typeclass instances
+  let derivedInstances: {
+    Eq?: Eq<ProductTypeInstance<Fields>>;
+    Ord?: Ord<ProductTypeInstance<Fields>>;
+    Show?: Show<ProductTypeInstance<Fields>>;
+  } = {};
+
+  if (derive.length > 0) {
+    // Derive Eq instance
+    if (derive.includes('Eq')) {
+      derivedInstances.Eq = deriveEqInstance({
+        customEq: (a: ProductTypeInstance<Fields>, b: ProductTypeInstance<Fields>): boolean => {
+          const aKeys = Object.keys(a);
+          const bKeys = Object.keys(b);
+
+          if (aKeys.length !== bKeys.length) return false;
+
+          for (const key of aKeys) {
+            if (!(key in b)) return false;
+            if (a[key as keyof typeof a] !== b[key as keyof typeof b]) return false;
+          }
+
+          return true;
+        }
+      });
+    }
+
+    // Derive Ord instance
+    if (derive.includes('Ord')) {
+      derivedInstances.Ord = deriveOrdInstance({
+        customOrd: (a: ProductTypeInstance<Fields>, b: ProductTypeInstance<Fields>): number => {
+          const aKeys = Object.keys(a).sort();
+          const bKeys = Object.keys(b).sort();
+
+          for (let i = 0; i < Math.min(aKeys.length, bKeys.length); i++) {
+            if (aKeys[i] < bKeys[i]) return -1;
+            if (aKeys[i] > bKeys[i]) return 1;
+          }
+
+          if (aKeys.length < bKeys.length) return -1;
+          if (aKeys.length > bKeys.length) return 1;
+
+          for (const key of aKeys) {
+            const aVal = a[key as keyof typeof a];
+            const bVal = b[key as keyof typeof b];
+
+            if (aVal < bVal) return -1;
+            if (aVal > bVal) return 1;
+          }
+
+          return 0;
+        }
+      });
+    }
+
+    // Derive Show instance
+    if (derive.includes('Show')) {
+      derivedInstances.Show = deriveShowInstance({
+        customShow: (a: ProductTypeInstance<Fields>): string => {
+          const payload = Object.keys(a)
+            .reduce((acc, key) => {
+              acc[key] = a[key as keyof typeof a];
+              return acc;
+            }, {} as Record<string, any>);
+          
+          const payloadStr = Object.keys(payload).length > 0 
+            ? `(${JSON.stringify(payload)})` 
+            : '';
+          
+          return `{${payloadStr}}`;
+        }
+      });
+    }
+
+    // Register with derivable instances system if enabled
+    if (enableDerivableInstances && typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
+      const registry = (globalThis as any).__FP_REGISTRY;
+      const typeName = config.name || 'ProductType';
+      
+      if (derivedInstances.Eq) {
+        registry.register(`${typeName}Eq`, derivedInstances.Eq);
+      }
+      if (derivedInstances.Ord) {
+        registry.register(`${typeName}Ord`, derivedInstances.Ord);
+      }
+      if (derivedInstances.Show) {
+        registry.register(`${typeName}Show`, derivedInstances.Show);
+      }
+    }
+  }
   
-  const builder: ProductTypeBuilder<Fields> = {
+  return {
     Type: (class {
       constructor() {
-        throw new Error('ProductType.Type is a type constructor, not a runtime constructor');
+        throw new Error('ProductType is a type constructor, not a value constructor');
       }
     } as any),
     Instance: {} as ProductTypeInstance<Fields>,
@@ -499,19 +697,13 @@ export function createProductType<Fields extends ProductFields>(
     keys,
     values,
     entries,
-    createWithEffect
+    createWithEffect,
+    ...derivedInstances
   };
-  
-  // Auto-register with derivable instances if enabled
-  if (enableDerivableInstances) {
-    registerProductTypeForDerivableInstances(builder);
-  }
-  
-  return builder;
 }
 
 // ============================================================================
-// Part 4: HKT Integration
+// HKT Integration
 // ============================================================================
 
 /**
@@ -543,7 +735,7 @@ export type ExtractProductTypeInstance<Builder> = Builder extends ProductTypeBui
   : never;
 
 // ============================================================================
-// Part 5: Derivable Instance Integration
+// Derivable Instance Integration
 // ============================================================================
 
 /**
@@ -643,7 +835,7 @@ function registerProductTypeForDerivableInstances<Fields extends ProductFields>(
 }
 
 // ============================================================================
-// Part 6: Example Implementations
+// Example Implementations
 // ============================================================================
 
 /**
@@ -669,6 +861,12 @@ export function createMaybeType<A>(): SumTypeBuilder<{
   return createSumType({
     Just: (value: A) => ({ value }),
     Nothing: () => ({})
+  }, {
+    name: 'Maybe',
+    effect: 'Pure',
+    enableHKT: true,
+    enableDerivableInstances: true,
+    derive: ['Eq', 'Ord', 'Show']
   });
 }
 
@@ -695,6 +893,12 @@ export function createEitherType<L, R>(): SumTypeBuilder<{
   return createSumType({
     Left: (value: L) => ({ value }),
     Right: (value: R) => ({ value })
+  }, {
+    name: 'Either',
+    effect: 'Pure',
+    enableHKT: true,
+    enableDerivableInstances: true,
+    derive: ['Eq', 'Ord', 'Show']
   });
 }
 
@@ -721,6 +925,12 @@ export function createResultType<E, A>(): SumTypeBuilder<{
   return createSumType({
     Err: (value: E) => ({ value }),
     Ok: (value: A) => ({ value })
+  }, {
+    name: 'Result',
+    effect: 'Pure',
+    enableHKT: true,
+    enableDerivableInstances: true,
+    derive: ['Eq', 'Ord', 'Show']
   });
 }
 
@@ -741,7 +951,13 @@ export function createPointType(): ProductTypeBuilder<{
   x: number;
   y: number;
 }> {
-  return createProductType<{ x: number; y: number }>();
+  return createProductType<{ x: number; y: number }>({
+    name: 'Point',
+    effect: 'Pure',
+    enableHKT: true,
+    enableDerivableInstances: true,
+    derive: ['Eq', 'Ord', 'Show']
+  });
 }
 
 /**
@@ -761,11 +977,17 @@ export function createRectangleType(): ProductTypeBuilder<{
   width: number;
   height: number;
 }> {
-  return createProductType<{ width: number; height: number }>();
+  return createProductType<{ width: number; height: number }>({
+    name: 'Rectangle',
+    effect: 'Pure',
+    enableHKT: true,
+    enableDerivableInstances: true,
+    derive: ['Eq', 'Ord', 'Show']
+  });
 }
 
 // ============================================================================
-// Part 7: Laws Documentation
+// Laws Documentation
 // ============================================================================
 
 /**

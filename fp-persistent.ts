@@ -30,6 +30,13 @@ import {
   DeepImmutable, ImmutableArray
 } from './fp-immutable';
 
+import { 
+  deriveInstances, 
+  deriveEqInstance, 
+  deriveOrdInstance, 
+  deriveShowInstance 
+} from './fp-derivation-helpers';
+
 // ============================================================================
 // Part 1: Internal Data Structures
 // ============================================================================
@@ -982,40 +989,19 @@ export interface PersistentSetK extends Kind1 {
 }
 
 // ============================================================================
-// Part 6: Typeclass Instances
+// Typeclass Instances (Derived)
 // ============================================================================
 
 /**
- * Functor instance for PersistentListK
+ * PersistentList derived instances
  */
-export const PersistentListFunctor: Functor<PersistentListK> = {
-  map: <A, B>(fa: PersistentList<A>, f: (a: A) => B): PersistentList<B> => 
-    fa.map(f)
-};
-
-/**
- * Applicative instance for PersistentListK
- */
-export const PersistentListApplicative: Applicative<PersistentListK> = {
-  ...PersistentListFunctor,
-  of: <A>(a: A): PersistentList<A> => PersistentList.of(a),
-  ap: <A, B>(fab: PersistentList<(a: A) => B>, fa: PersistentList<A>): PersistentList<B> => {
-    const result: B[] = [];
-    for (const f of fab) {
-      for (const a of fa) {
-        result.push(f(a));
-      }
-    }
-    return PersistentList.fromArray(result);
-  }
-};
-
-/**
- * Monad instance for PersistentListK
- */
-export const PersistentListMonad: Monad<PersistentListK> = {
-  ...PersistentListApplicative,
-  chain: <A, B>(fa: PersistentList<A>, f: (a: A) => PersistentList<B>): PersistentList<B> => {
+export const PersistentListInstances = deriveInstances({
+  functor: true,
+  applicative: true,
+  monad: true,
+  customMap: <A, B>(fa: PersistentList<A>, f: (a: A) => B): PersistentList<B> => 
+    fa.map(f),
+  customChain: <A, B>(fa: PersistentList<A>, f: (a: A) => PersistentList<B>): PersistentList<B> => {
     const result: B[] = [];
     for (const a of fa) {
       for (const b of f(a)) {
@@ -1024,21 +1010,51 @@ export const PersistentListMonad: Monad<PersistentListK> = {
     }
     return PersistentList.fromArray(result);
   }
-};
+});
+
+export const PersistentListFunctor = PersistentListInstances.functor;
+export const PersistentListApplicative = PersistentListInstances.applicative;
+export const PersistentListMonad = PersistentListInstances.monad;
 
 /**
- * Functor instance for PersistentMapK
+ * PersistentList standard typeclass instances
  */
-export const PersistentMapFunctor: Functor<PersistentMapK> = {
-  map: <A, B>(fa: PersistentMap<any, A>, f: (a: A) => B): PersistentMap<any, B> => 
-    fa.map(f)
-};
+export const PersistentListEq = deriveEqInstance({
+  customEq: <A>(a: PersistentList<A>, b: PersistentList<A>): boolean => {
+    if (a.size !== b.size) return false;
+    const arrA = a.toArray();
+    const arrB = b.toArray();
+    return arrA.every((val, idx) => val === arrB[idx]);
+  }
+});
+
+export const PersistentListOrd = deriveOrdInstance({
+  customOrd: <A>(a: PersistentList<A>, b: PersistentList<A>): number => {
+    const arrA = a.toArray();
+    const arrB = b.toArray();
+    const minLength = Math.min(arrA.length, arrB.length);
+    for (let i = 0; i < minLength; i++) {
+      if (arrA[i] < arrB[i]) return -1;
+      if (arrA[i] > arrB[i]) return 1;
+    }
+    return arrA.length - arrB.length;
+  }
+});
+
+export const PersistentListShow = deriveShowInstance({
+  customShow: <A>(a: PersistentList<A>): string => 
+    `PersistentList(${JSON.stringify(a.toArray())})`
+});
 
 /**
- * Bifunctor instance for PersistentMapK
+ * PersistentMap derived instances
  */
-export const PersistentMapBifunctor: Bifunctor<PersistentMapK> = {
-  bimap: <A, B, C, D>(
+export const PersistentMapInstances = deriveInstances({
+  functor: true,
+  bifunctor: true,
+  customMap: <A, B>(fa: PersistentMap<any, A>, f: (a: A) => B): PersistentMap<any, B> => 
+    fa.map(f),
+  customBimap: <A, B, C, D>(
     fab: PersistentMap<A, B>,
     f: (a: A) => C,
     g: (b: B) => D
@@ -1049,15 +1065,87 @@ export const PersistentMapBifunctor: Bifunctor<PersistentMapK> = {
     }
     return PersistentMap.fromEntries(entries);
   }
-};
+});
+
+export const PersistentMapFunctor = PersistentMapInstances.functor;
+export const PersistentMapBifunctor = PersistentMapInstances.bifunctor;
 
 /**
- * Functor instance for PersistentSetK
+ * PersistentMap standard typeclass instances
  */
-export const PersistentSetFunctor: Functor<PersistentSetK> = {
-  map: <A, B>(fa: PersistentSet<A>, f: (a: A) => B): PersistentSet<B> => 
+export const PersistentMapEq = deriveEqInstance({
+  customEq: <A, B>(a: PersistentMap<A, B>, b: PersistentMap<A, B>): boolean => {
+    if (a.size !== b.size) return false;
+    for (const [key, value] of a.entries()) {
+      if (!b.has(key) || b.get(key) !== value) return false;
+    }
+    return true;
+  }
+});
+
+export const PersistentMapOrd = deriveOrdInstance({
+  customOrd: <A, B>(a: PersistentMap<A, B>, b: PersistentMap<A, B>): number => {
+    if (a.size !== b.size) return a.size - b.size;
+    const entriesA = Array.from(a.entries()).sort();
+    const entriesB = Array.from(b.entries()).sort();
+    for (let i = 0; i < entriesA.length; i++) {
+      const [keyA, valueA] = entriesA[i];
+      const [keyB, valueB] = entriesB[i];
+      if (keyA < keyB) return -1;
+      if (keyA > keyB) return 1;
+      if (valueA < valueB) return -1;
+      if (valueA > valueB) return 1;
+    }
+    return 0;
+  }
+});
+
+export const PersistentMapShow = deriveShowInstance({
+  customShow: <A, B>(a: PersistentMap<A, B>): string => 
+    `PersistentMap(${JSON.stringify(Object.fromEntries(a.entries()))})`
+});
+
+/**
+ * PersistentSet derived instances
+ */
+export const PersistentSetInstances = deriveInstances({
+  functor: true,
+  customMap: <A, B>(fa: PersistentSet<A>, f: (a: A) => B): PersistentSet<B> => 
     fa.map(f)
-};
+});
+
+export const PersistentSetFunctor = PersistentSetInstances.functor;
+
+/**
+ * PersistentSet standard typeclass instances
+ */
+export const PersistentSetEq = deriveEqInstance({
+  customEq: <A>(a: PersistentSet<A>, b: PersistentSet<A>): boolean => {
+    if (a.size !== b.size) return false;
+    for (const value of a) {
+      if (!b.has(value)) return false;
+    }
+    return true;
+  }
+});
+
+export const PersistentSetOrd = deriveOrdInstance({
+  customOrd: <A>(a: PersistentSet<A>, b: PersistentSet<A>): number => {
+    if (a.size !== b.size) return a.size - b.size;
+    const arrA = a.toArray().sort();
+    const arrB = b.toArray().sort();
+    for (let i = 0; i < arrA.length; i++) {
+      if (arrA[i] < arrB[i]) return -1;
+      if (arrA[i] > arrB[i]) return 1;
+    }
+    return 0;
+  }
+});
+
+export const PersistentSetShow = deriveShowInstance({
+  customShow: <A>(a: PersistentSet<A>): string => 
+    `PersistentSet(${JSON.stringify(a.toArray())})`
+});
 
 // ============================================================================
 // Part 7: Transient Mode for Batch Operations

@@ -436,8 +436,8 @@ export const resultMatcher = createPmatchBuilder<Result<any, any>, string>({
 export const ResultFunctor: Functor<ResultK> = {
   map: <A, B>(fa: Result<A, any>, f: (a: A) => B): Result<B, any> => 
     pmatch(fa)
-      .with('Ok', ({ value }) => Ok(f(value)))
-      .with('Err', ({ error }) => Err(error))
+      .with('Ok', ({ value }) => Result.Ok(f(value)))
+      .with('Err', ({ error }) => Result.Err(error))
       .exhaustive()
 };
 
@@ -445,15 +445,115 @@ export const ResultFunctor: Functor<ResultK> = {
  * Derive Monad from minimal definitions
  */
 export function deriveResultMonad(): Monad<ResultK> {
-  const of = <A>(a: A): Result<A, any> => Ok(a);
+  const of = <A>(a: A): Result<A, any> => Result.Ok(a);
   const chain = <A, B>(fa: Result<A, any>, f: (a: A) => Result<B, any>): Result<B, any> => 
     pmatch(fa)
       .with('Ok', ({ value }) => f(value))
-      .with('Err', ({ error }) => Err(error))
+      .with('Err', ({ error }) => Result.Err(error))
       .exhaustive();
   
   return deriveMonad<ResultK>(of, chain);
 }
+
+// ============================================================================
+// Typeclass Instances (Derived)
+// ============================================================================
+
+import { 
+  deriveInstances, 
+  deriveEqInstance, 
+  deriveOrdInstance, 
+  deriveShowInstance 
+} from './fp-derivation-helpers';
+
+/**
+ * Expr derived instances
+ */
+export const ExprInstances = deriveInstances({
+  functor: true,
+  customMap: <A, B>(fa: Expr<A>, f: (a: A) => B): Expr<B> => 
+    pmatch(fa)
+      .with('Const', ({ value }) => Expr.Const(f(value)))
+      .with('Add', ({ left, right }) => Expr.Add(left, right))
+      .with('If', ({ cond, then, else: else_ }) => Expr.If(cond, ExprInstances.functor!.map(then, f), ExprInstances.functor!.map(else_, f)))
+      .with('Var', ({ name }) => Expr.Var(name))
+      .with('Let', ({ name, value, body }) => Expr.Let(name, ExprInstances.functor!.map(value, f), ExprInstances.functor!.map(body, f)))
+      .exhaustive()
+});
+
+export const ExprFunctor = ExprInstances.functor;
+
+/**
+ * MaybeGADT derived instances
+ */
+export const MaybeGADTInstances = deriveInstances({
+  functor: true,
+  applicative: true,
+  monad: true,
+  customMap: <A, B>(fa: MaybeGADT<A>, f: (a: A) => B): MaybeGADT<B> => 
+    pmatch(fa)
+      .with('Just', ({ value }) => MaybeGADT.Just(f(value)))
+      .with('Nothing', () => MaybeGADT.Nothing())
+      .exhaustive(),
+  customChain: <A, B>(fa: MaybeGADT<A>, f: (a: A) => MaybeGADT<B>): MaybeGADT<B> => 
+    pmatch(fa)
+      .with('Just', ({ value }) => f(value))
+      .with('Nothing', () => MaybeGADT.Nothing())
+      .exhaustive()
+});
+
+export const MaybeGADTFunctor = MaybeGADTInstances.functor;
+export const MaybeGADTApplicative = MaybeGADTInstances.applicative;
+export const MaybeGADTMonad = MaybeGADTInstances.monad;
+
+/**
+ * EitherGADT derived instances
+ */
+export const EitherGADTInstances = deriveInstances({
+  bifunctor: true,
+  customBimap: <A, B, C, D>(
+    fab: EitherGADT<A, B>,
+    f: (a: A) => C,
+    g: (b: B) => D
+  ): EitherGADT<C, D> => 
+    pmatch(fab)
+      .with('Left', ({ value }) => EitherGADT.Left(f(value)))
+      .with('Right', ({ value }) => EitherGADT.Right(g(value)))
+      .exhaustive()
+});
+
+export const EitherGADTBifunctor = EitherGADTInstances.bifunctor;
+
+/**
+ * Result derived instances
+ */
+export const ResultInstances = deriveInstances({
+  functor: true,
+  applicative: true,
+  monad: true,
+  bifunctor: true,
+  customMap: <A, B>(fa: Result<A, any>, f: (a: A) => B): Result<B, any> => 
+    pmatch(fa)
+      .with('Ok', ({ value }) => Result.Ok(f(value)))
+      .with('Err', ({ error }) => Result.Err(error))
+      .exhaustive(),
+  customChain: <A, B>(fa: Result<A, any>, f: (a: A) => Result<B, any>): Result<B, any> => 
+    pmatch(fa)
+      .with('Ok', ({ value }) => f(value))
+      .with('Err', ({ error }) => Result.Err(error))
+      .exhaustive(),
+  customBimap: <A, B, C, D>(
+    fab: Result<A, B>,
+    f: (a: A) => C,
+    g: (b: B) => D
+  ): Result<C, D> => 
+    pmatch(fab)
+      .with('Ok', ({ value }) => Result.Ok(f(value)))
+      .with('Err', ({ error }) => Result.Err(g(error)))
+      .exhaustive()
+});
+
+export const ResultFunctor = ResultInstances.functor;
 
 // ============================================================================
 // Integration Examples
@@ -552,8 +652,8 @@ export function exampleExprFunctor(): void {
  * Example: Derivable Instances + Auto-Matchers on Result
  */
 export function exampleResultIntegration(): void {
-  const success = Ok(42);
-  const failure = Err('Something went wrong');
+  const success = Result.Ok(42);
+  const failure = Result.Err('Something went wrong');
   
   // Use auto-generated matcher
   const successResult = resultMatcher(success).exhaustive();
@@ -567,7 +667,7 @@ export function exampleResultIntegration(): void {
   
   const chained = derivedMonad.chain(
     success,
-    x => x > 40 ? Ok(x * 2) : Err('Too small')
+    x => x > 40 ? Result.Ok(x * 2) : Result.Err('Too small')
   );
   
   const chainedResult = resultMatcher(chained).exhaustive();

@@ -17,9 +17,10 @@
  */
 
 import {
-  Kind1, Kind2, Kind3,
+  Kind, Kind1, Kind2, Kind3,
   Apply, Type, TypeArgs, KindArity, KindResult,
   ArrayK, MaybeK, EitherK, TupleK, FunctionK,
+  ObservableLiteK, TaskEitherK,
   Maybe, Either
 } from './fp-hkt';
 
@@ -28,6 +29,9 @@ import {
   deriveFunctor, deriveApplicative, deriveMonad,
   lift2, composeK, sequence, traverse
 } from './fp-typeclasses-hkt';
+
+import { ObservableLite } from './fp-observable-lite';
+import { TaskEither } from './fp-bimonad-extended';
 
 // ============================================================================
 // Part 1: Type-Level Purity Effect System
@@ -328,6 +332,22 @@ export interface StateWithEffect<S, A> {
 export interface AsyncWithEffect<A> {
   readonly __effect: 'Async';
   readonly run: () => Promise<A>;
+}
+
+/**
+ * ObservableLite with effect tracking
+ */
+export interface ObservableLiteWithEffect<A> extends ObservableLiteK {
+  readonly __effect: 'Async';
+  readonly type: ObservableLite<A>;
+}
+
+/**
+ * TaskEither with effect tracking
+ */
+export interface TaskEitherWithEffect<L, R> extends TaskEitherK {
+  readonly __effect: 'Async';
+  readonly type: TaskEither<L, R>;
 }
 
 // ============================================================================

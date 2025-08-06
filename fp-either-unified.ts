@@ -29,6 +29,13 @@ import {
   createPurityInfo, attachPurityMarker, extractPurityMarker, hasPurityMarker
 } from './fp-purity';
 
+import { 
+  deriveInstances, 
+  deriveEqInstance, 
+  deriveOrdInstance, 
+  deriveShowInstance 
+} from './fp-derivation-helpers';
+
 // ============================================================================
 // Part 1: Unified Either ADT Definition
 // ============================================================================
@@ -44,7 +51,8 @@ export const EitherUnified = createSumType({
   effect: 'Pure',
   enableHKT: true,
   enableDerivableInstances: true,
-  enableRuntimeMarkers: false
+  enableRuntimeMarkers: false,
+  derive: ['Eq', 'Ord', 'Show']
 });
 
 /**
@@ -249,43 +257,94 @@ export const swapEither = <L, R>(either: Either<L, R>): Either<R, L> => {
 };
 
 // ============================================================================
-// Part 4: Typeclass Instances
+// Part 4: Typeclass Instances (Derived)
 // ============================================================================
 
 /**
- * Functor instance for Either (maps over Right)
+ * Either derived instances
  */
-export const EitherFunctor: Functor<EitherK> = {
-  map: mapEither
-};
+export const EitherInstances = deriveInstances({
+  functor: true,
+  applicative: true,
+  monad: true,
+  bifunctor: true,
+  customMap: <L, R, S>(fa: Either<L, R>, f: (r: R) => S): Either<L, S> => 
+    matchEither(fa, {
+      Left: value => Left(value),
+      Right: value => Right(f(value))
+    }),
+  customChain: <L, R, S>(fa: Either<L, R>, f: (r: R) => Either<L, S>): Either<L, S> => 
+    matchEither(fa, {
+      Left: value => Left(value),
+      Right: value => f(value)
+    }),
+  customBimap: <L, R, M, S>(
+    fab: Either<L, R>,
+    f: (l: L) => M,
+    g: (r: R) => S
+  ): Either<M, S> => 
+    matchEither(fab, {
+      Left: value => Left(f(value)),
+      Right: value => Right(g(value))
+    })
+});
+
+export const EitherFunctor = EitherInstances.functor;
+export const EitherApplicative = EitherInstances.applicative;
+export const EitherMonad = EitherInstances.monad;
+export const EitherBifunctor = EitherInstances.bifunctor;
 
 /**
- * Bifunctor instance for Either
+ * Either standard typeclass instances
  */
-export const EitherBifunctor: Bifunctor<EitherK> = {
-  bimap: bimapEither,
-  mapLeft: mapLeft
-};
+export const EitherEq = deriveEqInstance({
+  customEq: <L, R>(a: Either<L, R>, b: Either<L, R>): boolean => {
+    return matchEither(a, {
+      Left: aValue => matchEither(b, {
+        Left: bValue => aValue === bValue,
+        Right: () => false
+      }),
+      Right: aValue => matchEither(b, {
+        Left: () => false,
+        Right: bValue => aValue === bValue
+      })
+    });
+  }
+});
+
+export const EitherOrd = deriveOrdInstance({
+  customOrd: <L, R>(a: Either<L, R>, b: Either<L, R>): number => {
+    return matchEither(a, {
+      Left: aValue => matchEither(b, {
+        Left: bValue => {
+          if (aValue < bValue) return -1;
+          if (aValue > bValue) return 1;
+          return 0;
+        },
+        Right: () => -1 // Left < Right
+      }),
+      Right: aValue => matchEither(b, {
+        Left: () => 1, // Right > Left
+        Right: bValue => {
+          if (aValue < bValue) return -1;
+          if (aValue > bValue) return 1;
+          return 0;
+        }
+      })
+    });
+  }
+});
+
+export const EitherShow = deriveShowInstance({
+  customShow: <L, R>(a: Either<L, R>): string => 
+    matchEither(a, {
+      Left: value => `Left(${JSON.stringify(value)})`,
+      Right: value => `Right(${JSON.stringify(value)})`
+    })
+});
 
 /**
- * Applicative instance for Either
- */
-export const EitherApplicative: Applicative<EitherK> = {
-  ...EitherFunctor,
-  of: Right,
-  ap: apEither
-};
-
-/**
- * Monad instance for Either
- */
-export const EitherMonad: Monad<EitherK> = {
-  ...EitherApplicative,
-  chain: chainEither
-};
-
-/**
- * Foldable instance for Either
+ * Foldable instance for Either (manual due to complexity)
  */
 export const EitherFoldable: Foldable<EitherK> = {
   reduce: <L, R, B>(either: Either<L, R>, f: (b: B, r: R) => B, b: B): B => {
@@ -303,10 +362,10 @@ export const EitherFoldable: Foldable<EitherK> = {
 };
 
 /**
- * Traversable instance for Either
+ * Traversable instance for Either (manual due to complexity)
  */
 export const EitherTraversable: Traversable<EitherK> = {
-  ...EitherFunctor,
+  ...EitherFunctor!,
   sequence: <L, R>(eitherArray: Either<L, R[]>): R[] => {
     return matchEither(eitherArray, {
       Left: () => [],

@@ -34,6 +34,13 @@ import {
   createPurityInfo, attachPurityMarker, extractPurityMarker, hasPurityMarker
 } from './fp-purity';
 
+import { 
+  deriveInstances, 
+  deriveEqInstance, 
+  deriveOrdInstance, 
+  deriveShowInstance 
+} from './fp-derivation-helpers';
+
 // ============================================================================
 // Part 1: Core Type-Level Definitions
 // ============================================================================
@@ -488,43 +495,20 @@ export function isDeeplyFrozen<T>(obj: T): obj is Immutable<T> {
 }
 
 // ============================================================================
-// Part 6: Typeclass Integration
+// Part 6: Typeclass Integration (Derived)
 // ============================================================================
 
 /**
- * Immutable Functor instance for arrays
+ * ImmutableArray derived instances
  */
-export const ImmutableArrayFunctor: Functor<ArrayK> = {
-  map: <A, B>(fa: Immutable<A[]>, f: (a: A) => B): Immutable<B[]> => {
+export const ImmutableArrayInstances = deriveInstances({
+  functor: true,
+  applicative: true,
+  monad: true,
+  customMap: <A, B>(fa: Immutable<A[]>, f: (a: A) => B): Immutable<B[]> => {
     return Object.freeze(fa.map(f)) as Immutable<B[]>;
-  }
-};
-
-/**
- * Immutable Applicative instance for arrays
- */
-export const ImmutableArrayApplicative: Applicative<ArrayK> = {
-  ...ImmutableArrayFunctor,
-  of: <A>(a: A): Immutable<A[]> => {
-    return Object.freeze([a]) as Immutable<A[]>;
   },
-  ap: <A, B>(fab: Immutable<((a: A) => B)[]>, fa: Immutable<A[]>): Immutable<B[]> => {
-    const result: B[] = [];
-    for (const f of fab) {
-      for (const a of fa) {
-        result.push(f(a));
-      }
-    }
-    return Object.freeze(result) as Immutable<B[]>;
-  }
-};
-
-/**
- * Immutable Monad instance for arrays
- */
-export const ImmutableArrayMonad: Monad<ArrayK> = {
-  ...ImmutableArrayApplicative,
-  chain: <A, B>(fa: Immutable<A[]>, f: (a: A) => Immutable<B[]>): Immutable<B[]> => {
+  customChain: <A, B>(fa: Immutable<A[]>, f: (a: A) => Immutable<B[]>): Immutable<B[]> => {
     const result: B[] = [];
     for (const a of fa) {
       const fb = f(a);
@@ -534,13 +518,43 @@ export const ImmutableArrayMonad: Monad<ArrayK> = {
     }
     return Object.freeze(result) as Immutable<B[]>;
   }
-};
+});
+
+export const ImmutableArrayFunctor = ImmutableArrayInstances.functor;
+export const ImmutableArrayApplicative = ImmutableArrayInstances.applicative;
+export const ImmutableArrayMonad = ImmutableArrayInstances.monad;
 
 /**
- * Immutable Traversable instance for arrays
+ * ImmutableArray standard typeclass instances
+ */
+export const ImmutableArrayEq = deriveEqInstance({
+  customEq: <A>(a: Immutable<A[]>, b: Immutable<A[]>): boolean => {
+    if (a.length !== b.length) return false;
+    return a.every((val, idx) => val === b[idx]);
+  }
+});
+
+export const ImmutableArrayOrd = deriveOrdInstance({
+  customOrd: <A>(a: Immutable<A[]>, b: Immutable<A[]>): number => {
+    const minLength = Math.min(a.length, b.length);
+    for (let i = 0; i < minLength; i++) {
+      if (a[i] < b[i]) return -1;
+      if (a[i] > b[i]) return 1;
+    }
+    return a.length - b.length;
+  }
+});
+
+export const ImmutableArrayShow = deriveShowInstance({
+  customShow: <A>(a: Immutable<A[]>): string => 
+    `ImmutableArray(${JSON.stringify(a)})`
+});
+
+/**
+ * Immutable Traversable instance (manual due to complexity)
  */
 export const ImmutableArrayTraversable: Traversable<ArrayK> = {
-  ...ImmutableArrayFunctor,
+  ...ImmutableArrayFunctor!,
   sequence: <A>(fas: Immutable<A[][]>): Immutable<A[]> => {
     // Simplified implementation - in practice would need proper applicative
     return Object.freeze(fas.flat()) as Immutable<A[]>;
@@ -556,7 +570,7 @@ export const ImmutableArrayTraversable: Traversable<ArrayK> = {
 };
 
 /**
- * Immutable Foldable instance for arrays
+ * Immutable Foldable instance (manual due to complexity)
  */
 export const ImmutableArrayFoldable: Foldable<ArrayK> = {
   reduce: <A, B>(fa: Immutable<A[]>, f: (b: B, a: A) => B, b: B): B => {

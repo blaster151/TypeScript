@@ -18,6 +18,211 @@ import {
 } from './fp-typeclasses-hkt';
 
 // ============================================================================
+// Typeclass Instances (Derived)
+// ============================================================================
+
+import { 
+  deriveInstances, 
+  deriveEqInstance, 
+  deriveOrdInstance, 
+  deriveShowInstance 
+} from './fp-derivation-helpers';
+
+/**
+ * MaybeGADT derived instances
+ */
+export const MaybeGADTInstances = deriveInstances({
+  functor: true,
+  applicative: true,
+  monad: true,
+  customMap: <A, B>(fa: MaybeGADT<A>, f: (a: A) => B): MaybeGADT<B> => 
+    matchMaybe(fa, {
+      Just: (value) => MaybeGADT.Just(f(value)),
+      Nothing: () => MaybeGADT.Nothing()
+    }),
+  customChain: <A, B>(fa: MaybeGADT<A>, f: (a: A) => MaybeGADT<B>): MaybeGADT<B> => 
+    matchMaybe(fa, {
+      Just: (value) => f(value),
+      Nothing: () => MaybeGADT.Nothing()
+    })
+});
+
+export const MaybeGADTFunctor = MaybeGADTInstances.functor;
+export const MaybeGADTApplicative = MaybeGADTInstances.applicative;
+export const MaybeGADTMonad = MaybeGADTInstances.monad;
+
+/**
+ * MaybeGADT standard typeclass instances
+ */
+export const MaybeGADTEq = deriveEqInstance({
+  customEq: <A>(a: MaybeGADT<A>, b: MaybeGADT<A>): boolean => {
+    return matchMaybe(a, {
+      Just: aValue => matchMaybe(b, {
+        Just: bValue => aValue === bValue,
+        Nothing: () => false
+      }),
+      Nothing: () => matchMaybe(b, {
+        Just: () => false,
+        Nothing: () => true
+      })
+    });
+  }
+});
+
+export const MaybeGADTOrd = deriveOrdInstance({
+  customOrd: <A>(a: MaybeGADT<A>, b: MaybeGADT<A>): number => {
+    return matchMaybe(a, {
+      Just: aValue => matchMaybe(b, {
+        Just: bValue => {
+          if (aValue < bValue) return -1;
+          if (aValue > bValue) return 1;
+          return 0;
+        },
+        Nothing: () => 1 // Just > Nothing
+      }),
+      Nothing: () => matchMaybe(b, {
+        Just: () => -1, // Nothing < Just
+        Nothing: () => 0
+      })
+    });
+  }
+});
+
+export const MaybeGADTShow = deriveShowInstance({
+  customShow: <A>(a: MaybeGADT<A>): string => 
+    matchMaybe(a, {
+      Just: value => `Just(${JSON.stringify(value)})`,
+      Nothing: () => 'Nothing'
+    })
+});
+
+/**
+ * EitherGADT derived instances
+ */
+export const EitherGADTInstances = deriveInstances({
+  bifunctor: true,
+  customBimap: <A, B, C, D>(
+    fab: EitherGADT<A, B>,
+    f: (a: A) => C,
+    g: (b: B) => D
+  ): EitherGADT<C, D> => 
+    matchEither(fab, {
+      Left: (value) => EitherGADT.Left(f(value)),
+      Right: (value) => EitherGADT.Right(g(value))
+    })
+});
+
+export const EitherGADTBifunctor = EitherGADTInstances.bifunctor;
+
+/**
+ * EitherGADT standard typeclass instances
+ */
+export const EitherGADTEq = deriveEqInstance({
+  customEq: <A, B>(a: EitherGADT<A, B>, b: EitherGADT<A, B>): boolean => {
+    return matchEither(a, {
+      Left: aValue => matchEither(b, {
+        Left: bValue => aValue === bValue,
+        Right: () => false
+      }),
+      Right: aValue => matchEither(b, {
+        Left: () => false,
+        Right: bValue => aValue === bValue
+      })
+    });
+  }
+});
+
+export const EitherGADTOrd = deriveOrdInstance({
+  customOrd: <A, B>(a: EitherGADT<A, B>, b: EitherGADT<A, B>): number => {
+    return matchEither(a, {
+      Left: aValue => matchEither(b, {
+        Left: bValue => {
+          if (aValue < bValue) return -1;
+          if (aValue > bValue) return 1;
+          return 0;
+        },
+        Right: () => -1 // Left < Right
+      }),
+      Right: aValue => matchEither(b, {
+        Left: () => 1, // Right > Left
+        Right: bValue => {
+          if (aValue < bValue) return -1;
+          if (aValue > bValue) return 1;
+          return 0;
+        }
+      })
+    });
+  }
+});
+
+export const EitherGADTShow = deriveShowInstance({
+  customShow: <A, B>(a: EitherGADT<A, B>): string => 
+    matchEither(a, {
+      Left: value => `Left(${JSON.stringify(value)})`,
+      Right: value => `Right(${JSON.stringify(value)})`
+    })
+});
+
+/**
+ * ListGADT derived instances
+ */
+export const ListGADTInstances = deriveInstances({
+  functor: true,
+  customMap: <A, B>(fa: ListGADT<A>, f: (a: A) => B): ListGADT<B> => 
+    matchList(fa, {
+      Nil: () => ListGADT.Nil(),
+      Cons: (head, tail) => ListGADT.Cons(f(head), ListGADTInstances.functor!.map(tail, f))
+    })
+});
+
+export const ListGADTFunctor = ListGADTInstances.functor;
+
+/**
+ * ListGADT standard typeclass instances
+ */
+export const ListGADTEq = deriveEqInstance({
+  customEq: <A>(a: ListGADT<A>, b: ListGADT<A>): boolean => {
+    return matchList(a, {
+      Nil: () => matchList(b, {
+        Nil: () => true,
+        Cons: () => false
+      }),
+      Cons: (aHead, aTail) => matchList(b, {
+        Nil: () => false,
+        Cons: (bHead, bTail) => aHead === bHead && ListGADTEq.equals(aTail, bTail)
+      })
+    });
+  }
+});
+
+export const ListGADTOrd = deriveOrdInstance({
+  customOrd: <A>(a: ListGADT<A>, b: ListGADT<A>): number => {
+    return matchList(a, {
+      Nil: () => matchList(b, {
+        Nil: () => 0,
+        Cons: () => -1 // Nil < Cons
+      }),
+      Cons: (aHead, aTail) => matchList(b, {
+        Nil: () => 1, // Cons > Nil
+        Cons: (bHead, bTail) => {
+          if (aHead < bHead) return -1;
+          if (aHead > bHead) return 1;
+          return ListGADTOrd.compare(aTail, bTail);
+        }
+      })
+    });
+  }
+});
+
+export const ListGADTShow = deriveShowInstance({
+  customShow: <A>(a: ListGADT<A>): string => 
+    matchList(a, {
+      Nil: () => '[]',
+      Cons: (head, tail) => `[${JSON.stringify(head)}, ...${ListGADTShow.show(tail)}]`
+    })
+});
+
+// ============================================================================
 // Core GADT Types and Utilities
 // ============================================================================
 
@@ -196,45 +401,6 @@ export function matchMaybe<A, B>(
       return cases.Nothing();
   }
 }
-
-/**
- * Functor instance for MaybeGADT
- */
-export const MaybeGADTFunctor: Functor<MaybeGADTK> = {
-  map: <A, B>(fa: MaybeGADT<A>, f: (a: A) => B): MaybeGADT<B> => 
-    matchMaybe(fa, {
-      Just: (value) => MaybeGADT.Just(f(value)),
-      Nothing: () => MaybeGADT.Nothing()
-    })
-};
-
-/**
- * Applicative instance for MaybeGADT
- */
-export const MaybeGADTApplicative: Applicative<MaybeGADTK> = {
-  ...MaybeGADTFunctor,
-  of: <A>(a: A): MaybeGADT<A> => MaybeGADT.Just(a),
-  ap: <A, B>(fab: MaybeGADT<(a: A) => B>, fa: MaybeGADT<A>): MaybeGADT<B> => 
-    matchMaybe(fab, {
-      Just: (f) => matchMaybe(fa, {
-        Just: (a) => MaybeGADT.Just(f(a)),
-        Nothing: () => MaybeGADT.Nothing()
-      }),
-      Nothing: () => MaybeGADT.Nothing()
-    })
-};
-
-/**
- * Monad instance for MaybeGADT
- */
-export const MaybeGADTMonad: Monad<MaybeGADTK> = {
-  ...MaybeGADTApplicative,
-  chain: <A, B>(fa: MaybeGADT<A>, f: (a: A) => MaybeGADT<B>): MaybeGADT<B> => 
-    matchMaybe(fa, {
-      Just: (value) => f(value),
-      Nothing: () => MaybeGADT.Nothing()
-    })
-};
 
 // ============================================================================
 // Either as GADT
