@@ -46,17 +46,22 @@ export interface FPRegistry {
   // Derivable Instances Registry
   derivable: Map<string, any>;
   
+  // Usage Registry
+  usage: Map<string, any>;
+  
   // Registration methods
   registerHKT(name: string, kind: any): void;
   registerPurity(name: string, effect: string): void;
   registerTypeclass(name: string, typeclass: string, instance: any): void;
   registerDerivable(name: string, instances: any): void;
+  registerUsage(name: string, usage: any): void;
   
   // Lookup methods
   getHKT(name: string): any;
   getPurity(name: string): string | undefined;
   getTypeclass(name: string, typeclass: string): any;
   getDerivable(name: string): any;
+  getUsage(name: string): any;
 }
 
 // ============================================================================
@@ -71,6 +76,7 @@ class GlobalFPRegistry implements FPRegistry {
   public purity = new Map<string, string>();
   public typeclasses = new Map<string, any>();
   public derivable = new Map<string, any>();
+  public usage = new Map<string, any>();
 
   registerHKT(name: string, kind: any): void {
     this.hkt.set(name, kind);
@@ -89,6 +95,10 @@ class GlobalFPRegistry implements FPRegistry {
     this.derivable.set(name, instances);
   }
 
+  registerUsage(name: string, usage: any): void {
+    this.usage.set(name, usage);
+  }
+
   getHKT(name: string): any {
     return this.hkt.get(name);
   }
@@ -104,6 +114,10 @@ class GlobalFPRegistry implements FPRegistry {
 
   getDerivable(name: string): any {
     return this.derivable.get(name);
+  }
+
+  getUsage(name: string): any {
+    return this.usage.get(name);
   }
 }
 
@@ -399,6 +413,22 @@ export function getPurityEffect(name: string): string | undefined {
 export function getDerivableInstances(name: string): any {
   const registry = getFPRegistry();
   return registry?.getDerivable(name);
+}
+
+/**
+ * Get usage bound for a type from the global registry
+ */
+export function getUsageBound(name: string): any {
+  const registry = getFPRegistry();
+  return registry?.getUsage(name);
+}
+
+/**
+ * Register usage for a type in the global registry
+ */
+export function registerUsageBound(name: string, usage: any): void {
+  const registry = getFPRegistry();
+  registry?.registerUsage(name, usage);
 }
 
 // ============================================================================

@@ -30,6 +30,7 @@ export interface DerivationConfig {
   eq?: boolean;
   ord?: boolean;
   show?: boolean;
+  usage?: any; // Optional: usage bound for the type
   customMap?: <A, B>(fa: any, f: (a: A) => B) => any;
   customChain?: <A, B>(fa: any, f: (a: A) => any) => any;
   customBimap?: <A, B, C, D>(fab: any, f: (a: A) => C, g: (b: B) => D) => any;
@@ -49,6 +50,7 @@ export interface DerivedInstances {
   eq?: Eq<any>;
   ord?: Ord<any>;
   show?: Show<any>;
+  usage?: any; // Optional: usage bound for the type
 }
 
 // ============================================================================
@@ -465,6 +467,11 @@ export function deriveInstances<F extends Kind<any[]>>(
 
   if (config.show) {
     instances.show = deriveShow(config);
+  }
+
+  // Include usage if provided
+  if (config.usage) {
+    instances.usage = config.usage;
   }
 
   return instances;
