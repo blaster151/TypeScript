@@ -37,6 +37,8 @@ import {
   deriveShowInstance 
 } from './fp-derivation-helpers';
 
+import { applyFluentOps, FluentImpl } from './fp-fluent-api';
+
 // ============================================================================
 // Part 1: Internal Data Structures
 // ============================================================================
@@ -331,6 +333,52 @@ export class PersistentList<T> {
   
   /**
    * Iterator support
+   */
+  [Symbol.iterator](): Iterator<T> {
+    let index = 0;
+    return {
+      next: (): IteratorResult<T> => {
+        if (index >= this._size) {
+          return { done: true, value: undefined };
+        }
+        const value = this.get(index);
+        index++;
+        return { done: false, value: value! };
+      }
+    };
+  }
+  
+  /**
+   * FlatMap operation for PersistentList
+   */
+  flatMap<U>(fn: (value: T, index: number) => PersistentList<U>): PersistentList<U> {
+    const result: U[] = [];
+    for (let i = 0; i < this._size; i++) {
+      const value = this.get(i);
+      if (value !== undefined) {
+        const mapped = fn(value, i);
+        for (const v of mapped) {
+          result.push(v);
+        }
+      }
+    }
+    return PersistentList.fromArray(result);
+  }
+
+  /**
+   * ForEach operation for PersistentList
+   */
+  forEach(fn: (value: T, index: number) => void): void {
+    for (let i = 0; i < this._size; i++) {
+      const value = this.get(i);
+      if (value !== undefined) {
+        fn(value, i);
+      }
+    }
+  }
+
+  /**
+   * Iterator for PersistentList
    */
   [Symbol.iterator](): Iterator<T> {
     let index = 0;
@@ -684,6 +732,37 @@ export class PersistentMap<K, V> {
     return this.entries()[Symbol.iterator]();
   }
   
+  /**
+   * FlatMap operation for PersistentMap
+   */
+  flatMap<U>(fn: (value: V, key: K) => PersistentMap<K, U>): PersistentMap<K, U> {
+    const entries = Array.from(this.entries());
+    const results: [K, U][] = [];
+    for (const [k, v] of entries) {
+      const mapped = fn(v, k);
+      for (const [mk, mv] of mapped.entries()) {
+        results.push([mk, mv]);
+      }
+    }
+    return PersistentMap.fromEntries(results);
+  }
+
+  /**
+   * ForEach operation for PersistentMap
+   */
+  forEach(fn: (value: V, key: K) => void): void {
+    for (const [k, v] of this.entries()) {
+      fn(v, k);
+    }
+  }
+
+  /**
+   * Iterator for PersistentMap entries
+   */
+  [Symbol.iterator](): Iterator<[K, V]> {
+    return this.entries()[Symbol.iterator]();
+  }
+  
   // Private helper methods
   private hash(key: K): number {
     if (typeof key === 'string') {
@@ -960,6 +1039,36 @@ export class PersistentSet<T> {
    */
   [Symbol.iterator](): Iterator<T> {
     return this.map.keys()[Symbol.iterator]();
+  }
+
+  /**
+   * FlatMap operation for PersistentSet
+   */
+  flatMap<U>(fn: (value: T) => PersistentSet<U>): PersistentSet<U> {
+    const results: U[] = [];
+    for (const value of this) {
+      const mapped = fn(value);
+      for (const v of mapped) {
+        results.push(v);
+      }
+    }
+    return PersistentSet.fromArray(results);
+  }
+
+  /**
+   * ForEach operation for PersistentSet
+   */
+  forEach(fn: (value: T) => void): void {
+    for (const value of this) {
+      fn(value);
+    }
+  }
+
+  /**
+   * Iterator for PersistentSet
+   */
+  [Symbol.iterator](): Iterator<T> {
+    return this.map[Symbol.iterator]();
   }
 }
 
@@ -1425,3 +1534,281 @@ export function unzip<A, B>(list: PersistentList<[A, B]>): [PersistentList<A>, P
  * 3. Set Law: PersistentSetK works with Functor
  * 4. Transient Law: Transient operations yield immutable results
  */ 
+
+// ============================================================================
+// Part 10: Derived Typeclass Instances
+// ============================================================================
+
+/**
+ * PersistentList derived instances
+ */
+export const PersistentListInstances = deriveInstances<PersistentListK>({
+  map: (fa, f) => fa.map(f),
+  chain: (fa, f) => fa.flatMap ? fa.flatMap(f) : fa.map(f).foldLeft(PersistentList.empty<ReturnType<typeof f>>(), (acc, val) => acc.append(val)),
+  of: PersistentList.of
+});
+
+export const PersistentListFunctor = PersistentListInstances.functor;
+export const PersistentListApplicative = PersistentListInstances.applicative;
+export const PersistentListMonad = PersistentListInstances.monad;
+export const PersistentListEq = deriveEqInstance(PersistentList);
+export const PersistentListOrd = deriveOrdInstance(PersistentList);
+export const PersistentListShow = deriveShowInstance(PersistentList);
+
+/**
+ * PersistentMap derived instances
+ */
+export const PersistentMapInstances = deriveInstances<PersistentMapK>({
+  map: (fa, f) => fa.map(f),
+  bimap: (fa, fk, fv) => {
+    const entries = Array.from(fa.entries());
+    const newEntries = entries.map(([k, v]) => [fk(k), fv(v)] as [any, any]);
+    return PersistentMap.fromEntries(newEntries);
+  },
+  of: (value) => PersistentMap.of(value)
+});
+
+export const PersistentMapFunctor = PersistentMapInstances.functor;
+export const PersistentMapBifunctor = PersistentMapInstances.bifunctor;
+export const PersistentMapEq = deriveEqInstance(PersistentMap);
+export const PersistentMapOrd = deriveOrdInstance(PersistentMap);
+export const PersistentMapShow = deriveShowInstance(PersistentMap);
+
+/**
+ * PersistentSet derived instances
+ */
+export const PersistentSetInstances = deriveInstances<PersistentSetK>({
+  map: (fa, f) => fa.map(f),
+  of: (value) => PersistentSet.of(value)
+});
+
+export const PersistentSetFunctor = PersistentSetInstances.functor;
+export const PersistentSetEq = deriveEqInstance(PersistentSet);
+export const PersistentSetOrd = deriveOrdInstance(PersistentSet);
+export const PersistentSetShow = deriveShowInstance(PersistentSet);
+
+// ============================================================================
+// Part 11: Fluent API Integration
+// ============================================================================
+
+/**
+ * Apply fluent API to PersistentList
+ */
+const PersistentListFluentImpl: FluentImpl<any> = {
+  map: (self, f) => self.map(f),
+  chain: (self, f) => {
+    if (self.flatMap) {
+      return self.flatMap(f);
+    }
+    // Fallback implementation for chain
+    return self.map(f).foldLeft(PersistentList.empty(), (acc, val) => {
+      if (val instanceof PersistentList) {
+        return val.foldLeft(acc, (acc2, v) => acc2.append(v));
+      }
+      return acc.append(val);
+    });
+  },
+  flatMap: (self, f) => {
+    if (self.flatMap) {
+      return self.flatMap(f);
+    }
+    return self.map(f).foldLeft(PersistentList.empty(), (acc, val) => {
+      if (val instanceof PersistentList) {
+        return val.foldLeft(acc, (acc2, v) => acc2.append(v));
+      }
+      return acc.append(val);
+    });
+  },
+  filter: (self, pred) => self.filter(pred),
+  scan: (self, reducer, seed) => {
+    let acc = seed;
+    return self.map(v => { 
+      acc = reducer(acc, v); 
+      return acc; 
+    });
+  },
+  reduce: (self, reducer, seed) => self.foldLeft(seed, reducer),
+  tap: (self, side) => { 
+    self.forEach(side); 
+    return self; 
+  },
+  pipe: (self, ...fns) => {
+    let result = self;
+    for (const fn of fns) {
+      result = result.map(fn);
+    }
+    return result;
+  }
+};
+
+/**
+ * Apply fluent API to PersistentMap
+ */
+const PersistentMapFluentImpl: FluentImpl<any> = {
+  map: (self, f) => self.map(f),
+  chain: (self, f) => {
+    if (self.flatMap) {
+      return self.flatMap(f);
+    }
+    // Fallback implementation for chain
+    const entries = Array.from(self.entries());
+    const results: any[] = [];
+    for (const [k, v] of entries) {
+      const result = f(v);
+      if (result instanceof PersistentMap) {
+        results.push(...Array.from(result.entries()));
+      } else {
+        results.push([k, result]);
+      }
+    }
+    return PersistentMap.fromEntries(results);
+  },
+  flatMap: (self, f) => {
+    if (self.flatMap) {
+      return self.flatMap(f);
+    }
+    const entries = Array.from(self.entries());
+    const results: any[] = [];
+    for (const [k, v] of entries) {
+      const result = f(v);
+      if (result instanceof PersistentMap) {
+        results.push(...Array.from(result.entries()));
+      } else {
+        results.push([k, result]);
+      }
+    }
+    return PersistentMap.fromEntries(results);
+  },
+  filter: (self, pred) => self.filter(pred),
+  scan: (self, reducer, seed) => {
+    let acc = seed;
+    return self.map(v => { 
+      acc = reducer(acc, v); 
+      return acc; 
+    });
+  },
+  reduce: (self, reducer, seed) => {
+    let acc = seed;
+    for (const v of self.values()) {
+      acc = reducer(acc, v);
+    }
+    return acc;
+  },
+  tap: (self, side) => { 
+    self.forEach(side); 
+    return self; 
+  },
+  pipe: (self, ...fns) => {
+    let result = self;
+    for (const fn of fns) {
+      result = result.map(fn);
+    }
+    return result;
+  }
+};
+
+/**
+ * Apply fluent API to PersistentSet
+ */
+const PersistentSetFluentImpl: FluentImpl<any> = {
+  map: (self, f) => self.map(f),
+  chain: (self, f) => {
+    if (self.flatMap) {
+      return self.flatMap(f);
+    }
+    // Fallback implementation for chain
+    const results: any[] = [];
+    for (const v of self) {
+      const result = f(v);
+      if (result instanceof PersistentSet) {
+        results.push(...Array.from(result));
+      } else {
+        results.push(result);
+      }
+    }
+    return PersistentSet.fromArray(results);
+  },
+  flatMap: (self, f) => {
+    if (self.flatMap) {
+      return self.flatMap(f);
+    }
+    const results: any[] = [];
+    for (const v of self) {
+      const result = f(v);
+      if (result instanceof PersistentSet) {
+        results.push(...Array.from(result));
+      } else {
+        results.push(result);
+      }
+    }
+    return PersistentSet.fromArray(results);
+  },
+  filter: (self, pred) => self.filter(pred),
+  scan: (self, reducer, seed) => {
+    let acc = seed;
+    return self.map(v => { 
+      acc = reducer(acc, v); 
+      return acc; 
+    });
+  },
+  reduce: (self, reducer, seed) => {
+    let acc = seed;
+    for (const v of self) {
+      acc = reducer(acc, v);
+    }
+    return acc;
+  },
+  tap: (self, side) => { 
+    self.forEach(side); 
+    return self; 
+  },
+  pipe: (self, ...fns) => {
+    let result = self;
+    for (const fn of fns) {
+      result = result.map(fn);
+    }
+    return result;
+  }
+};
+
+// Apply fluent API to all persistent collection prototypes
+applyFluentOps(PersistentList.prototype, PersistentListFluentImpl);
+applyFluentOps(PersistentMap.prototype, PersistentMapFluentImpl);
+applyFluentOps(PersistentSet.prototype, PersistentSetFluentImpl);
+
+// ============================================================================
+// Part 12: Registration
+// ============================================================================
+
+/**
+ * Register persistent collection typeclass instances
+ */
+export function registerPersistentInstances(): void {
+  if (typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
+    const registry = (globalThis as any).__FP_REGISTRY;
+    
+    // Register PersistentList instances
+    registry.register('PersistentListFunctor', PersistentListFunctor);
+    registry.register('PersistentListApplicative', PersistentListApplicative);
+    registry.register('PersistentListMonad', PersistentListMonad);
+    registry.register('PersistentListEq', PersistentListEq);
+    registry.register('PersistentListOrd', PersistentListOrd);
+    registry.register('PersistentListShow', PersistentListShow);
+    
+    // Register PersistentMap instances
+    registry.register('PersistentMapFunctor', PersistentMapFunctor);
+    registry.register('PersistentMapBifunctor', PersistentMapBifunctor);
+    registry.register('PersistentMapEq', PersistentMapEq);
+    registry.register('PersistentMapOrd', PersistentMapOrd);
+    registry.register('PersistentMapShow', PersistentMapShow);
+    
+    // Register PersistentSet instances
+    registry.register('PersistentSetFunctor', PersistentSetFunctor);
+    registry.register('PersistentSetEq', PersistentSetEq);
+    registry.register('PersistentSetOrd', PersistentSetOrd);
+    registry.register('PersistentSetShow', PersistentSetShow);
+  }
+}
+
+// Auto-register instances
+registerPersistentInstances(); 
