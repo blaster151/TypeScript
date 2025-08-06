@@ -138,6 +138,7 @@ export const ArrayInstances = deriveInstances({
   customMap: <A, B>(fa: Array<A>, f: (a: A) => B): Array<B> => fa.map(f),
   customChain: <A, B>(fa: Array<A>, f: (a: A) => Array<B>): Array<B> => fa.flatMap(f)
 });
+attachPurityMarker(ArrayInstances, 'Pure');
 
 export const ArrayFunctor = ArrayInstances.functor;
 export const ArrayApplicative = ArrayInstances.applicative;

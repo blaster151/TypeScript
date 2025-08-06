@@ -399,6 +399,9 @@ Either.prototype.toResult = function() {
  * Register Either typeclass instances
  */
 export function registerEitherInstances(): void {
+export const EitherEq = deriveEqInstance({ kind: EitherK });
+export const EitherOrd = deriveOrdInstance({ kind: EitherK });
+export const EitherShow = deriveShowInstance({ kind: EitherK });
   if (typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
     const registry = (globalThis as any).__FP_REGISTRY;
     
@@ -411,3 +414,12 @@ export function registerEitherInstances(): void {
 
 // Auto-register instances
 registerEitherInstances(); 
+export function registerEitherDerivations(): void {
+  if (typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
+    const registry = (globalThis as any).__FP_REGISTRY;
+    registry.register('EitherEq', EitherEq);
+    registry.register('EitherOrd', EitherOrd);
+    registry.register('EitherShow', EitherShow);
+  }
+}
+registerEitherDerivations();

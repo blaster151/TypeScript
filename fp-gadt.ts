@@ -164,16 +164,16 @@ export const EitherGADTShow = deriveShowInstance({
 });
 
 /**
- * ListGADT derived instances
+ * Derived instances for ListGADTK
  */
-export const ListGADTInstances = deriveInstances({
-  functor: true,
-  customMap: <A, B>(fa: ListGADT<A>, f: (a: A) => B): ListGADT<B> => 
+export const ListGADTInstances = deriveInstances<ListGADTK>({
+  map: <A, B>(fa: ListGADT<A>, f: (a: A) => B): ListGADT<B> => 
     matchList(fa, {
       Nil: () => ListGADT.Nil(),
-      Cons: (head, tail) => ListGADT.Cons(f(head), ListGADTInstances.functor!.map(tail, f))
+      Cons: (head, tail) => ListGADT.Cons(f(head), ListGADTInstances.map(tail, f))
     })
 });
+attachPurityMarker(ListGADTInstances, 'Pure');
 
 export const ListGADTFunctor = ListGADTInstances.functor;
 
@@ -714,3 +714,25 @@ export function exampleStringTransformation(): void {
  * 2. Typeclass Laws: GADT instances must satisfy typeclass laws
  * 3. Derivation Compatibility: Derivable instances work with GADT implementations
  */ 
+
+// ============================================================================
+// Registration
+// ============================================================================
+
+/**
+ * Register GADT typeclass instances
+ */
+export function registerGADTInstances(): void {
+  if (typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
+    const registry = (globalThis as any).__FP_REGISTRY;
+    
+    // Register ListGADT instances
+    registry.register('ListGADTFunctor', ListGADTFunctor);
+    
+    // Register EitherGADT instances
+    registry.register('EitherGADTBifunctor', EitherGADTBifunctor);
+  }
+}
+
+// Auto-register instances
+registerGADTInstances(); 

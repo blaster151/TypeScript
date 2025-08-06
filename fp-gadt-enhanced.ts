@@ -20,6 +20,8 @@ import {
   deriveFunctor, deriveApplicative, deriveMonad
 } from './fp-typeclasses-hkt';
 
+import { deriveEqInstance, deriveOrdInstance, deriveShowInstance } from './fp-derivation-helpers';
+
 // ============================================================================
 // Core GADT Types and Utilities
 // ============================================================================
@@ -431,71 +433,60 @@ export const resultMatcher = createPmatchBuilder<Result<any, any>, string>({
 });
 
 /**
- * Functor instance for ResultK (maps over success values)
+ * Derived instances for ResultK
  */
-export const ResultFunctor: Functor<ResultK> = {
+export const ResultInstances = deriveInstances<ResultK>({
   map: <A, B>(fa: Result<A, any>, f: (a: A) => B): Result<B, any> => 
     pmatch(fa)
       .with('Ok', ({ value }) => Result.Ok(f(value)))
       .with('Err', ({ error }) => Result.Err(error))
       .exhaustive()
-};
+});
 
-/**
- * Derive Monad from minimal definitions
- */
-export function deriveResultMonad(): Monad<ResultK> {
-  const of = <A>(a: A): Result<A, any> => Result.Ok(a);
-  const chain = <A, B>(fa: Result<A, any>, f: (a: A) => Result<B, any>): Result<B, any> => 
-    pmatch(fa)
-      .with('Ok', ({ value }) => f(value))
-      .with('Err', ({ error }) => Result.Err(error))
-      .exhaustive();
-  
-  return deriveMonad<ResultK>(of, chain);
-}
+export const ResultFunctor = ResultInstances.functor;
 
 // ============================================================================
 // Typeclass Instances (Derived)
 // ============================================================================
 
-import { 
-  deriveInstances, 
-  deriveEqInstance, 
-  deriveOrdInstance, 
-  deriveShowInstance 
-} from './fp-derivation-helpers';
-
 /**
  * Expr derived instances
  */
-export const ExprInstances = deriveInstances({
-  functor: true,
-  customMap: <A, B>(fa: Expr<A>, f: (a: A) => B): Expr<B> => 
+export const ExprInstances = deriveInstances<ExprK>({
+  map: <A, B>(fa: Expr<A>, f: (a: A) => B): Expr<B> => 
     pmatch(fa)
       .with('Const', ({ value }) => Expr.Const(f(value)))
       .with('Add', ({ left, right }) => Expr.Add(left, right))
-      .with('If', ({ cond, then, else: else_ }) => Expr.If(cond, ExprInstances.functor!.map(then, f), ExprInstances.functor!.map(else_, f)))
+      .with('If', ({ cond, then, else: else_ }) => Expr.If(cond, ExprInstances.map(then, f), ExprInstances.map(else_, f)))
       .with('Var', ({ name }) => Expr.Var(name))
-      .with('Let', ({ name, value, body }) => Expr.Let(name, ExprInstances.functor!.map(value, f), ExprInstances.functor!.map(body, f)))
+      .with('Let', ({ name, value, body }) => Expr.Let(name, ExprInstances.map(value, f), ExprInstances.map(body, f)))
       .exhaustive()
 });
+attachPurityMarker(ExprInstances, 'Pure');
 
 export const ExprFunctor = ExprInstances.functor;
 
 /**
- * MaybeGADT derived instances
+ * Derived instances for MaybeGADTK
  */
-export const MaybeGADTInstances = deriveInstances({
-  functor: true,
-  applicative: true,
-  monad: true,
-  customMap: <A, B>(fa: MaybeGADT<A>, f: (a: A) => B): MaybeGADT<B> => 
+export const MaybeGADTInstances = deriveInstances<MaybeGADTK>({
+  map: <A, B>(fa: MaybeGADT<A>, f: (a: A) => B): MaybeGADT<B> => 
     pmatch(fa)
       .with('Just', ({ value }) => MaybeGADT.Just(f(value)))
       .with('Nothing', () => MaybeGADT.Nothing())
       .exhaustive(),
-  customChain: <A, B>(fa: MaybeGADT<A>, f: (a: A) => MaybeGADT<B>): MaybeGADT<B> => 
+  of: <A>(a: A): MaybeGADT<A> => MaybeGADT.Just(a),
+  ap: <A, B>(fab: MaybeGADT<(a: A) => B>, fa: MaybeGADT<A>): MaybeGADT<B> => 
+    pmatch(fab)
+      .with('Just', ({ value: f }) => 
+        pmatch(fa)
+          .with('Just', ({ value: a }) => MaybeGADT.Just(f(a)))
+          .with('Nothing', () => MaybeGADT.Nothing())
+          .exhaustive()
+      )
+      .with('Nothing', () => MaybeGADT.Nothing())
+      .exhaustive(),
+  chain: <A, B>(fa: MaybeGADT<A>, f: (a: A) => MaybeGADT<B>): MaybeGADT<B> => 
     pmatch(fa)
       .with('Just', ({ value }) => f(value))
       .with('Nothing', () => MaybeGADT.Nothing())
@@ -507,15 +498,10 @@ export const MaybeGADTApplicative = MaybeGADTInstances.applicative;
 export const MaybeGADTMonad = MaybeGADTInstances.monad;
 
 /**
- * EitherGADT derived instances
+ * Derived instances for EitherGADTK
  */
-export const EitherGADTInstances = deriveInstances({
-  bifunctor: true,
-  customBimap: <A, B, C, D>(
-    fab: EitherGADT<A, B>,
-    f: (a: A) => C,
-    g: (b: B) => D
-  ): EitherGADT<C, D> => 
+export const EitherGADTInstances = deriveInstances<EitherGADTK>({
+  bimap: <A, B, C, D>(fab: EitherGADT<A, B>, f: (a: A) => C, g: (b: B) => D): EitherGADT<C, D> => 
     pmatch(fab)
       .with('Left', ({ value }) => EitherGADT.Left(f(value)))
       .with('Right', ({ value }) => EitherGADT.Right(g(value)))
@@ -701,3 +687,69 @@ export function exampleResultIntegration(): void {
  * 3. Derivation Compatibility: Derivable instances work with GADT implementations
  * 4. Auto-Matcher Compatibility: Auto-generated matchers preserve type safety and exhaustiveness
  */ 
+
+// ============================================================================
+// Part 7: Registration
+// ============================================================================
+
+/**
+ * Register GADT typeclass instances
+ */
+export function registerGADTInstances(): void {
+export const ExprEq = deriveEqInstance({ kind: ExprK });
+export const ExprOrd = deriveOrdInstance({ kind: ExprK });
+export const ExprShow = deriveShowInstance({ kind: ExprK });
+  if (typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
+    const registry = (globalThis as any).__FP_REGISTRY;
+    
+    // Register Expr instances
+    registry.register('ExprFunctor', ExprFunctor);
+    
+    // Register MaybeGADT instances
+    registry.register('MaybeGADTFunctor', MaybeGADTFunctor);
+    registry.register('MaybeGADTApplicative', MaybeGADTApplicative);
+    registry.register('MaybeGADTMonad', MaybeGADTMonad);
+    
+    // Register EitherGADT instances
+    registry.register('EitherGADTBifunctor', EitherGADTBifunctor);
+    
+    // Register Result instances
+    registry.register('ResultFunctor', ResultFunctor);
+  }
+}
+
+// Auto-register instances
+registerGADTInstances(); 
+export function registerExprDerivations(): void {
+export const MaybeGADTEq = deriveEqInstance({ kind: MaybeGADTK });
+export const MaybeGADTOrd = deriveOrdInstance({ kind: MaybeGADTK });
+export const MaybeGADTShow = deriveShowInstance({ kind: MaybeGADTK });
+  if (typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
+    const registry = (globalThis as any).__FP_REGISTRY;
+    registry.register('ExprEq', ExprEq);
+    registry.register('ExprOrd', ExprOrd);
+    registry.register('ExprShow', ExprShow);
+  }
+}
+registerExprDerivations();
+export function registerMaybeGADTDerivations(): void {
+export const EitherGADTEq = deriveEqInstance({ kind: EitherGADTK });
+export const EitherGADTOrd = deriveOrdInstance({ kind: EitherGADTK });
+export const EitherGADTShow = deriveShowInstance({ kind: EitherGADTK });
+  if (typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
+    const registry = (globalThis as any).__FP_REGISTRY;
+    registry.register('MaybeGADTEq', MaybeGADTEq);
+    registry.register('MaybeGADTOrd', MaybeGADTOrd);
+    registry.register('MaybeGADTShow', MaybeGADTShow);
+  }
+}
+registerMaybeGADTDerivations();
+export function registerEitherGADTDerivations(): void {
+  if (typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
+    const registry = (globalThis as any).__FP_REGISTRY;
+    registry.register('EitherGADTEq', EitherGADTEq);
+    registry.register('EitherGADTOrd', EitherGADTOrd);
+    registry.register('EitherGADTShow', EitherGADTShow);
+  }
+}
+registerEitherGADTDerivations();

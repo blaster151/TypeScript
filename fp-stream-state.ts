@@ -265,9 +265,9 @@ export function fanIn<S, A, B, C>(
 // ============================================================================
 
 /**
- * Functor instance for StatefulStream
+ * Derived instances for StatefulStream
  */
-export const StatefulStreamFunctor: Functor<StatefulStreamK> = {
+export const StatefulStreamInstances = deriveInstances<StatefulStreamK>({
   map: <I, S, A, B>(
     fa: StatefulStream<I, S, A>,
     f: (a: A) => B
@@ -279,14 +279,7 @@ export const StatefulStreamFunctor: Functor<StatefulStreamK> = {
       },
       fa.__purity === 'Pure' ? 'Pure' : 'State'
     );
-  }
-};
-
-/**
- * Applicative instance for StatefulStream
- */
-export const StatefulStreamApplicative: Applicative<StatefulStreamK> = {
-  ...StatefulStreamFunctor,
+  },
   of: <I, S, A>(a: A): StatefulStream<I, S, A> => {
     return createStatefulStream(
       () => (state) => [state, a],
@@ -305,14 +298,7 @@ export const StatefulStreamApplicative: Applicative<StatefulStreamK> = {
       },
       ff.__purity === 'Pure' && fa.__purity === 'Pure' ? 'Pure' : 'State'
     );
-  }
-};
-
-/**
- * Monad instance for StatefulStream
- */
-export const StatefulStreamMonad: Monad<StatefulStreamK> = {
-  ...StatefulStreamApplicative,
+  },
   chain: <I, S, A, B>(
     fa: StatefulStream<I, S, A>,
     f: (a: A) => StatefulStream<I, S, B>
@@ -324,14 +310,7 @@ export const StatefulStreamMonad: Monad<StatefulStreamK> = {
       },
       'State' // Always stateful due to chaining
     );
-  }
-};
-
-/**
- * Profunctor instance for StatefulStream
- * dimap allows transforming both input and output
- */
-export const StatefulStreamProfunctor: Profunctor<StatefulStreamK> = {
+  },
   dimap: <I, O, I2, O2, S>(
     p: StatefulStream<I, S, O>,
     f: (i2: I2) => I,
@@ -344,29 +323,13 @@ export const StatefulStreamProfunctor: Profunctor<StatefulStreamK> = {
       },
       p.__purity
     );
-  },
-  lmap: <I, O, I2, S>(
-    p: StatefulStream<I, S, O>,
-    f: (i2: I2) => I
-  ): StatefulStream<I2, S, O> => {
-    return createStatefulStream(
-      (input2) => (state) => p.run(f(input2))(state),
-      p.__purity
-    );
-  },
-  rmap: <I, O, O2, S>(
-    p: StatefulStream<I, S, O>,
-    g: (o: O) => O2
-  ): StatefulStream<I, S, O2> => {
-    return createStatefulStream(
-      (input) => (state) => {
-        const [s2, o] = p.run(input)(state);
-        return [s2, g(o)];
-      },
-      p.__purity
-    );
   }
-};
+});
+
+export const StatefulStreamFunctor = StatefulStreamInstances.functor;
+export const StatefulStreamApplicative = StatefulStreamInstances.applicative;
+export const StatefulStreamMonad = StatefulStreamInstances.monad;
+export const StatefulStreamProfunctor = StatefulStreamInstances.profunctor;
 
 // ============================================================================
 // Purity Integration
@@ -608,3 +571,25 @@ StatefulStream.prototype.toEither = function() {
 StatefulStream.prototype.toResult = function() {
   return toResult(this);
 }; 
+
+// ============================================================================
+// Registration
+// ============================================================================
+
+/**
+ * Register StatefulStream typeclass instances
+ */
+export function registerStatefulStreamInstances(): void {
+  if (typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
+    const registry = (globalThis as any).__FP_REGISTRY;
+    
+    // Register StatefulStream instances
+    registry.register('StatefulStreamFunctor', StatefulStreamFunctor);
+    registry.register('StatefulStreamApplicative', StatefulStreamApplicative);
+    registry.register('StatefulStreamMonad', StatefulStreamMonad);
+    registry.register('StatefulStreamProfunctor', StatefulStreamProfunctor);
+  }
+}
+
+// Auto-register instances
+registerStatefulStreamInstances(); 

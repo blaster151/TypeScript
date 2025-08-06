@@ -1112,6 +1112,7 @@ export const PersistentListInstances = deriveInstances({
     fa.map(f),
   customChain: <A, B>(fa: PersistentList<A>, f: (a: A) => PersistentList<B>): PersistentList<B> => {
     const result: B[] = [];
+attachPurityMarker(PersistentListInstances, 'Pure');
     for (const a of fa) {
       for (const b of f(a)) {
         result.push(b);

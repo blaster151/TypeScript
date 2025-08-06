@@ -258,28 +258,18 @@ export const foldMaybe = <A, B>(onJust: (a: A) => B, onNothing: () => B, maybe: 
 // ============================================================================
 
 /**
- * Functor instance for Maybe
+ * Derived instances for Maybe
  */
-export const MaybeFunctor: Functor<MaybeK> = {
-  map: mapMaybe
-};
-
-/**
- * Applicative instance for Maybe
- */
-export const MaybeApplicative: Applicative<MaybeK> = {
-  ...MaybeFunctor,
+export const MaybeInstances = deriveInstances<MaybeK>({
+  map: mapMaybe,
   of: Just,
-  ap: apMaybe
-};
-
-/**
- * Monad instance for Maybe
- */
-export const MaybeMonad: Monad<MaybeK> = {
-  ...MaybeApplicative,
+  ap: apMaybe,
   chain: chainMaybe
-};
+});
+
+export const MaybeFunctor = MaybeInstances.functor;
+export const MaybeApplicative = MaybeInstances.applicative;
+export const MaybeMonad = MaybeInstances.monad;
 
 /**
  * Foldable instance for Maybe
@@ -381,6 +371,9 @@ export type MaybeOf<A> = ApplyMaybe<[A]>;
  * Example usage of enhanced Maybe with ergonomic pattern matching
  */
 export function exampleUsage() {
+export const MaybeEq = deriveEqInstance({ kind: MaybeK });
+export const MaybeOrd = deriveOrdInstance({ kind: MaybeK });
+export const MaybeShow = deriveShowInstance({ kind: MaybeK });
   // Create Maybe instances
   const maybeJust = Just(42);
   const maybeNothing = Nothing();
@@ -474,3 +467,12 @@ export function exampleUsage() {
  * 2. Right Identity: m.chain(of) = m
  * 3. Associativity: m.chain(f).chain(g) = m.chain(x => f(x).chain(g))
  */ 
+export function registerMaybeDerivations(): void {
+  if (typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
+    const registry = (globalThis as any).__FP_REGISTRY;
+    registry.register('MaybeEq', MaybeEq);
+    registry.register('MaybeOrd', MaybeOrd);
+    registry.register('MaybeShow', MaybeShow);
+  }
+}
+registerMaybeDerivations();

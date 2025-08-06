@@ -133,10 +133,10 @@ export type Setter<S, T, A, B> = ProfunctorOptic<Profunctor<any>, S, T, A, B>;
 // ============================================================================
 
 /**
- * Function Profunctor instance
+ * Function Profunctor instance (special case - canonical profunctor)
  * The canonical profunctor for function types
  */
-export const FunctionProfunctor: Profunctor<FunctionK> = {
+export const FunctionProfunctorInstances = deriveInstances<FunctionK>({
   dimap: <A, B, C, D>(
     pab: (a: A) => B,
     f: (c: C) => A,
@@ -144,7 +144,9 @@ export const FunctionProfunctor: Profunctor<FunctionK> = {
   ): (c: C) => D => {
     return (c: C) => g(pab(f(c)));
   }
-};
+});
+
+export const FunctionProfunctor = FunctionProfunctorInstances.profunctor;
 
 /**
  * Function Strong instance

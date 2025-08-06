@@ -421,6 +421,9 @@ Result.prototype.toEither = function() {
  * Register Result typeclass instances
  */
 export function registerResultInstances(): void {
+export const ResultEq = deriveEqInstance({ kind: ResultK });
+export const ResultOrd = deriveOrdInstance({ kind: ResultK });
+export const ResultShow = deriveShowInstance({ kind: ResultK });
   if (typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
     const registry = (globalThis as any).__FP_REGISTRY;
     
@@ -433,3 +436,12 @@ export function registerResultInstances(): void {
 
 // Auto-register instances
 registerResultInstances(); 
+export function registerResultDerivations(): void {
+  if (typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
+    const registry = (globalThis as any).__FP_REGISTRY;
+    registry.register('ResultEq', ResultEq);
+    registry.register('ResultOrd', ResultOrd);
+    registry.register('ResultShow', ResultShow);
+  }
+}
+registerResultDerivations();

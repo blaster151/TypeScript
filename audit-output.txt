@@ -1,0 +1,427 @@
+🔍 Comprehensive Registry Audit
+===============================
+🚀 Running Comprehensive Registry Audit...
+
+
+🔍 Auditing Registration Completeness...
+
+🔍 Checking MaybeK...
+   ✅ Kind export found: export type ApplyMaybe<Args extends TypeArgs> = Apply<MaybeK
+
+🔍 Checking EitherK...
+   ❌ Missing kind export
+
+🔍 Checking ResultK...
+   ❌ Missing kind export
+
+🔍 Checking ExprK...
+   ✅ Kind export found: export interface ExprK
+
+🔍 Checking MaybeGADTK...
+   ✅ Kind export found: export interface MaybeGADTK
+
+🔍 Checking EitherGADTK...
+   ✅ Kind export found: export interface EitherGADTK
+
+🔍 Checking ListGADTK...
+   ✅ Kind export found: export interface ListGADTK
+
+🔍 Checking PersistentListK...
+   ✅ Kind export found: export interface PersistentListK
+
+🔍 Checking PersistentMapK...
+   ✅ Kind export found: export interface PersistentMapK
+
+🔍 Checking PersistentSetK...
+   ✅ Kind export found: export interface PersistentSetK
+
+🔍 Checking ArrayK...
+   ❌ Missing kind export
+
+🔍 Checking ObservableLiteK...
+   ✅ Kind export found: export type ApplyObservableLite<Args extends TypeArgs<any>> = Apply<ObservableLiteK
+
+🔍 Checking StatefulStreamK...
+   ✅ Kind export found: export interface StatefulStreamK
+
+🔍 Checking FunctionK...
+   ❌ Missing kind export
+
+🔍 Checking PersistentListHKT...
+   ✅ Kind export found: export type ApplyPersistentList<A> = Apply<PersistentListHKT
+
+🔍 Checking PersistentMapHKT...
+   ✅ Kind export found: export type ApplyPersistentMap<K, V> = Apply<PersistentMapHKT
+
+🔍 Checking PersistentSetHKT...
+   ✅ Kind export found: export type ApplyPersistentSet<A> = Apply<PersistentSetHKT
+
+
+🔍 Auditing Purity Tagging...
+
+🔍 Checking MaybeK purity...
+   ❌ Missing purity tag (expected: Pure)
+
+🔍 Checking EitherK purity...
+   ❌ Missing purity tag (expected: Pure)
+
+🔍 Checking ResultK purity...
+   ❌ Missing purity tag (expected: Pure)
+
+🔍 Checking ExprK purity...
+   ✅ Has purity tag: attachPurityMarker(ExprInstances, 'Pure'
+
+🔍 Checking MaybeGADTK purity...
+   ✅ Has purity tag: attachPurityMarker(ExprInstances, 'Pure'
+
+🔍 Checking EitherGADTK purity...
+   ✅ Has purity tag: attachPurityMarker(ExprInstances, 'Pure'
+
+🔍 Checking ListGADTK purity...
+   ✅ Has purity tag: attachPurityMarker(ListGADTInstances, 'Pure'
+
+🔍 Checking PersistentListK purity...
+   ✅ Has purity tag: attachPurityMarker(PersistentListInstances, 'Pure'
+
+🔍 Checking PersistentMapK purity...
+   ✅ Has purity tag: attachPurityMarker(PersistentListInstances, 'Pure'
+
+🔍 Checking PersistentSetK purity...
+   ✅ Has purity tag: attachPurityMarker(PersistentListInstances, 'Pure'
+
+🔍 Checking ArrayK purity...
+   ✅ Has purity tag: attachPurityMarker(ArrayInstances, 'Pure'
+
+🔍 Checking ObservableLiteK purity...
+   ✅ Has purity tag: purity: 'Async'
+
+🔍 Checking StatefulStreamK purity...
+   ❌ Missing purity tag (expected: State)
+
+🔍 Checking FunctionK purity...
+   ✅ Has purity tag: attachPurityMarker(optic, 'Pure'
+
+🔍 Checking PersistentListHKT purity...
+   ❌ Missing purity tag (expected: Pure)
+
+🔍 Checking PersistentMapHKT purity...
+   ❌ Missing purity tag (expected: Pure)
+
+🔍 Checking PersistentSetHKT purity...
+   ❌ Missing purity tag (expected: Pure)
+
+
+🔍 Auditing Typeclass Coverage...
+
+🔍 Checking MaybeK typeclass coverage...
+   ❌ Missing Eq derivation
+   ❌ Missing Ord derivation
+   ❌ Missing Show derivation
+   🔄 Missing derivations or registrations
+
+🔍 Checking EitherK typeclass coverage...
+   ❌ Missing Eq derivation
+   ❌ Missing Ord derivation
+   ❌ Missing Show derivation
+   🔄 Missing derivations or registrations
+
+🔍 Checking ResultK typeclass coverage...
+   ❌ Missing Eq derivation
+   ❌ Missing Ord derivation
+   ❌ Missing Show derivation
+   🔄 Missing derivations or registrations
+
+🔍 Checking ExprK typeclass coverage...
+   ❌ Missing Eq derivation
+   ❌ Missing Ord derivation
+   ❌ Missing Show derivation
+   🔄 Missing derivations or registrations
+
+🔍 Checking MaybeGADTK typeclass coverage...
+   ❌ Missing Eq derivation
+   ❌ Missing Ord derivation
+   ❌ Missing Show derivation
+   🔄 Missing derivations or registrations
+
+🔍 Checking EitherGADTK typeclass coverage...
+   ❌ Missing Eq derivation
+   ❌ Missing Ord derivation
+   ❌ Missing Show derivation
+   🔄 Missing derivations or registrations
+
+🔍 Checking ListGADTK typeclass coverage...
+   ❌ Missing Eq derivation
+   ❌ Missing Ord derivation
+   ❌ Missing Show derivation
+   🔄 Missing derivations or registrations
+
+🔍 Checking PersistentListK typeclass coverage...
+   ❌ Missing Eq derivation
+   ❌ Missing Ord derivation
+   ❌ Missing Show derivation
+   🔄 Missing derivations or registrations
+
+🔍 Checking PersistentMapK typeclass coverage...
+   ❌ Missing Eq derivation
+   ❌ Missing Ord derivation
+   ❌ Missing Show derivation
+   🔄 Missing derivations or registrations
+
+🔍 Checking PersistentSetK typeclass coverage...
+   ❌ Missing Eq derivation
+   ❌ Missing Ord derivation
+   ❌ Missing Show derivation
+   🔄 Missing derivations or registrations
+
+🔍 Checking ArrayK typeclass coverage...
+   ❌ Missing Eq derivation
+   ❌ Missing Ord derivation
+   ❌ Missing Show derivation
+   🔄 Missing derivations or registrations
+
+🔍 Checking ObservableLiteK typeclass coverage...
+   ❌ Skip: Effect type with subscriptions and side effects
+
+🔍 Checking StatefulStreamK typeclass coverage...
+   ❌ Skip: Stateful stream with mutable state
+
+🔍 Checking FunctionK typeclass coverage...
+   ❌ Skip: Function type with arbitrary behavior
+
+🔍 Checking PersistentListHKT typeclass coverage...
+   ✅ Has Eq derivation
+   ✅ Has Eq registration
+   ✅ Has Ord derivation
+   ✅ Has Ord registration
+   ✅ Has Show derivation
+   ✅ Has Show registration
+   ✅ Complete typeclass coverage
+
+🔍 Checking PersistentMapHKT typeclass coverage...
+   ✅ Has Eq derivation
+   ✅ Has Eq registration
+   ✅ Has Ord derivation
+   ✅ Has Ord registration
+   ✅ Has Show derivation
+   ✅ Has Show registration
+   ✅ Complete typeclass coverage
+
+🔍 Checking PersistentSetHKT typeclass coverage...
+   ✅ Has Eq derivation
+   ✅ Has Eq registration
+   ✅ Has Ord derivation
+   ✅ Has Ord registration
+   ✅ Has Show derivation
+   ✅ Has Show registration
+   ✅ Complete typeclass coverage
+
+
+🔍 Auditing Consistency...
+
+🔍 Checking MaybeK consistency...
+   ✅ Kind matches module location
+
+🔍 Checking EitherK consistency...
+   ❌ Kind not found in expected module
+
+🔍 Checking ResultK consistency...
+   ❌ Kind not found in expected module
+
+🔍 Checking ExprK consistency...
+   ✅ Kind matches module location
+
+🔍 Checking MaybeGADTK consistency...
+   ✅ Kind matches module location
+
+🔍 Checking EitherGADTK consistency...
+   ✅ Kind matches module location
+
+🔍 Checking ListGADTK consistency...
+   ✅ Kind matches module location
+
+🔍 Checking PersistentListK consistency...
+   ✅ Kind matches module location
+
+🔍 Checking PersistentMapK consistency...
+   ✅ Kind matches module location
+
+🔍 Checking PersistentSetK consistency...
+   ✅ Kind matches module location
+
+🔍 Checking ArrayK consistency...
+   ❌ Kind not found in expected module
+
+🔍 Checking ObservableLiteK consistency...
+   ✅ Kind matches module location
+
+🔍 Checking StatefulStreamK consistency...
+   ✅ Kind matches module location
+
+🔍 Checking FunctionK consistency...
+   ❌ Kind not found in expected module
+
+🔍 Checking PersistentListHKT consistency...
+   ✅ Kind matches module location
+
+🔍 Checking PersistentMapHKT consistency...
+   ✅ Kind matches module location
+
+🔍 Checking PersistentSetHKT consistency...
+   ✅ Kind matches module location
+
+
+📊 Registry Audit Summary Table
+================================
+Kind			Purity	Eq	Ord	Show	Status
+----			------	--	---	----	------
+MaybeK              	Pure	🔄	🔄	🔄	Missing derivation
+EitherK             	Pure	🔄	🔄	🔄	Inconsistent
+ResultK             	Pure	🔄	🔄	🔄	Inconsistent
+ExprK               	Pure	🔄	🔄	🔄	Missing derivation
+MaybeGADTK          	Pure	🔄	🔄	🔄	Missing derivation
+EitherGADTK         	Pure	🔄	🔄	🔄	Missing derivation
+ListGADTK           	Pure	🔄	🔄	🔄	Missing derivation
+PersistentListK     	Pure	🔄	🔄	🔄	Missing derivation
+PersistentMapK      	Pure	🔄	🔄	🔄	Missing derivation
+PersistentSetK      	Pure	🔄	🔄	🔄	Missing derivation
+ArrayK              	Pure	🔄	🔄	🔄	Inconsistent
+ObservableLiteK     	Async	N/A	N/A	N/A	Skip
+StatefulStreamK     	State	N/A	N/A	N/A	Skip
+FunctionK           	Impure	N/A	N/A	N/A	Inconsistent
+PersistentListHKT   	Pure	✅	✅	✅	OK
+PersistentMapHKT    	Pure	✅	✅	✅	OK
+PersistentSetHKT    	Pure	✅	✅	✅	OK
+
+📈 Summary Statistics:
+=====================
+Total kinds audited: 17
+Registration completeness:
+  ✅ Complete: 13
+  ❌ Missing kind export: 4
+  ❌ Missing registry entry: 0
+Purity tagging:
+  ✅ Correct: 10
+  ❌ Missing: 7
+  ❌ Incorrect: 0
+Typeclass coverage:
+  ✅ Complete: 3
+  🔄 Missing derivation: 11
+  ❌ Skip (flagged): 3
+Consistency:
+  ✅ Consistent: 13
+  ❌ Stale entry: 0
+  ❌ Mismatched kind: 4
+
+⚠️  Action Recommendations:
+==========================
+
+🔧 Missing Kind Exports:
+   - EitherK in fp-either.ts:
+     export type EitherK = Kind1<any>;
+   - ResultK in fp-result.ts:
+     export type ResultK = Kind1<any>;
+   - ArrayK in fp-typeclasses-hkt.ts:
+     export type ArrayK = Kind1<any>;
+   - FunctionK in fp-profunctor-optics.ts:
+     export type FunctionK = Kind1<any>;
+
+🔧 Missing Purity Tags:
+   - MaybeK (expected: Pure):
+     attachPurityMarker(MaybeInstances, 'Pure');
+   - EitherK (expected: Pure):
+     attachPurityMarker(EitherInstances, 'Pure');
+   - ResultK (expected: Pure):
+     attachPurityMarker(ResultInstances, 'Pure');
+   - StatefulStreamK (expected: State):
+     attachPurityMarker(StatefulStreamInstances, 'State');
+   - PersistentListHKT (expected: Pure):
+     attachPurityMarker(PersistentListHTInstances, 'Pure');
+   - PersistentMapHKT (expected: Pure):
+     attachPurityMarker(PersistentMapHTInstances, 'Pure');
+   - PersistentSetHKT (expected: Pure):
+     attachPurityMarker(PersistentSetHTInstances, 'Pure');
+
+🔧 Missing Eq/Ord/Show Derivations:
+   - MaybeK:
+     export const MaybeKEq = deriveEqInstance({ kind: MaybeK });
+     export const MaybeKOrd = deriveOrdInstance({ kind: MaybeK });
+     export const MaybeKShow = deriveShowInstance({ kind: MaybeK });
+     registry.register('MaybeKEq', MaybeKEq);
+     registry.register('MaybeKOrd', MaybeKOrd);
+     registry.register('MaybeKShow', MaybeKShow);
+   - EitherK:
+     export const EitherKEq = deriveEqInstance({ kind: EitherK });
+     export const EitherKOrd = deriveOrdInstance({ kind: EitherK });
+     export const EitherKShow = deriveShowInstance({ kind: EitherK });
+     registry.register('EitherKEq', EitherKEq);
+     registry.register('EitherKOrd', EitherKOrd);
+     registry.register('EitherKShow', EitherKShow);
+   - ResultK:
+     export const ResultKEq = deriveEqInstance({ kind: ResultK });
+     export const ResultKOrd = deriveOrdInstance({ kind: ResultK });
+     export const ResultKShow = deriveShowInstance({ kind: ResultK });
+     registry.register('ResultKEq', ResultKEq);
+     registry.register('ResultKOrd', ResultKOrd);
+     registry.register('ResultKShow', ResultKShow);
+   - ExprK:
+     export const ExprKEq = deriveEqInstance({ kind: ExprK });
+     export const ExprKOrd = deriveOrdInstance({ kind: ExprK });
+     export const ExprKShow = deriveShowInstance({ kind: ExprK });
+     registry.register('ExprKEq', ExprKEq);
+     registry.register('ExprKOrd', ExprKOrd);
+     registry.register('ExprKShow', ExprKShow);
+   - MaybeGADTK:
+     export const MaybeGADTKEq = deriveEqInstance({ kind: MaybeGADTK });
+     export const MaybeGADTKOrd = deriveOrdInstance({ kind: MaybeGADTK });
+     export const MaybeGADTKShow = deriveShowInstance({ kind: MaybeGADTK });
+     registry.register('MaybeGADTKEq', MaybeGADTKEq);
+     registry.register('MaybeGADTKOrd', MaybeGADTKOrd);
+     registry.register('MaybeGADTKShow', MaybeGADTKShow);
+   - EitherGADTK:
+     export const EitherGADTKEq = deriveEqInstance({ kind: EitherGADTK });
+     export const EitherGADTKOrd = deriveOrdInstance({ kind: EitherGADTK });
+     export const EitherGADTKShow = deriveShowInstance({ kind: EitherGADTK });
+     registry.register('EitherGADTKEq', EitherGADTKEq);
+     registry.register('EitherGADTKOrd', EitherGADTKOrd);
+     registry.register('EitherGADTKShow', EitherGADTKShow);
+   - ListGADTK:
+     export const ListGADTKEq = deriveEqInstance({ kind: ListGADTK });
+     export const ListGADTKOrd = deriveOrdInstance({ kind: ListGADTK });
+     export const ListGADTKShow = deriveShowInstance({ kind: ListGADTK });
+     registry.register('ListGADTKEq', ListGADTKEq);
+     registry.register('ListGADTKOrd', ListGADTKOrd);
+     registry.register('ListGADTKShow', ListGADTKShow);
+   - PersistentListK:
+     export const PersistentListKEq = deriveEqInstance({ kind: PersistentListK });
+     export const PersistentListKOrd = deriveOrdInstance({ kind: PersistentListK });
+     export const PersistentListKShow = deriveShowInstance({ kind: PersistentListK });
+     registry.register('PersistentListKEq', PersistentListKEq);
+     registry.register('PersistentListKOrd', PersistentListKOrd);
+     registry.register('PersistentListKShow', PersistentListKShow);
+   - PersistentMapK:
+     export const PersistentMapKEq = deriveEqInstance({ kind: PersistentMapK });
+     export const PersistentMapKOrd = deriveOrdInstance({ kind: PersistentMapK });
+     export const PersistentMapKShow = deriveShowInstance({ kind: PersistentMapK });
+     registry.register('PersistentMapKEq', PersistentMapKEq);
+     registry.register('PersistentMapKOrd', PersistentMapKOrd);
+     registry.register('PersistentMapKShow', PersistentMapKShow);
+   - PersistentSetK:
+     export const PersistentSetKEq = deriveEqInstance({ kind: PersistentSetK });
+     export const PersistentSetKOrd = deriveOrdInstance({ kind: PersistentSetK });
+     export const PersistentSetKShow = deriveShowInstance({ kind: PersistentSetK });
+     registry.register('PersistentSetKEq', PersistentSetKEq);
+     registry.register('PersistentSetKOrd', PersistentSetKOrd);
+     registry.register('PersistentSetKShow', PersistentSetKShow);
+   - ArrayK:
+     export const ArrayKEq = deriveEqInstance({ kind: ArrayK });
+     export const ArrayKOrd = deriveOrdInstance({ kind: ArrayK });
+     export const ArrayKShow = deriveShowInstance({ kind: ArrayK });
+     registry.register('ArrayKEq', ArrayKEq);
+     registry.register('ArrayKOrd', ArrayKOrd);
+     registry.register('ArrayKShow', ArrayKShow);
+
+🔧 Inconsistent Entries:
+   - EitherK: Move to correct module or update registry entry
+   - ResultK: Move to correct module or update registry entry
+   - ArrayK: Move to correct module or update registry entry
+   - FunctionK: Move to correct module or update registry entry
