@@ -3648,7 +3648,37 @@ export function enhancedAutoRegisterFluentMethods(): void {
   console.log('✅ Enhanced auto-registration completed with runtime detection');
 }
 
-// Helper function to find ADT constructor - moved to EnhancedRuntimeDetectionManager class
+/**
+ * Helper function to find ADT constructor
+ */
+function findADTConstructor(adtName: string): any {
+  // Try to find in global scope
+  if (typeof globalThis !== 'undefined' && (globalThis as any)[adtName]) {
+    return (globalThis as any)[adtName];
+  }
+
+  // Try to find in module scope
+  try {
+    const module = require(`./fp-${adtName.toLowerCase()}-unified`);
+    if (module[adtName]) {
+      return module[adtName];
+    }
+  } catch (e) {
+    // Module not found
+  }
+
+  // Try alternative naming patterns
+  try {
+    const module = require(`./fp-${adtName.toLowerCase()}`);
+    if (module[adtName]) {
+      return module[adtName];
+    }
+  } catch (e) {
+    // Module not found
+  }
+
+  return null;
+}
 
 /**
  * Enhanced verification that includes auto-discovery

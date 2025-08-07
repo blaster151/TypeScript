@@ -27,7 +27,7 @@ declare global {
      * [1, 2, 3].foldLeft((acc, x) => acc + x, 0)  // → 6
      * [1, 2, 3].foldLeft((acc, x) => acc - x, 0)  // → -6
      */
-    foldLeft<B>(f: (acc: B, a: T) => B, initial: B): B;
+    foldLeft?: <B>(f: (acc: B, a: T) => B, initial: B) => B;
 
     /**
      * Right-associative fold (reduceRight)
@@ -41,7 +41,7 @@ declare global {
      * [1, 2, 3].foldRight((x, acc) => acc - x, 0) // → ((0 - 3) - 2) - 1 = -6
      * [1, 2, 3].foldRight((x, acc) => x + acc, 0) // → 1 + (2 + (3 + 0)) = 6
      */
-    foldRight<B>(f: (a: T, acc: B) => B, initial: B): B;
+    foldRight?: <B>(f: (a: T, acc: B) => B, initial: B) => B;
 
     /**
      * Map with left-associative accumulation
@@ -55,7 +55,7 @@ declare global {
      * ["a", "b", "c"].mapAccumL((i, char) => [i + 1, `${i}:${char}`], 0)
      * // → [3, ["0:a", "1:b", "2:c"]]
      */
-    mapAccumL<B, S>(f: (acc: S, a: T) => [S, B], init: S): [S, B[]];
+    mapAccumL?: <B, S>(f: (acc: S, a: T) => [S, B], init: S) => [S, B[]];
 
     /**
      * Map with right-associative accumulation
@@ -69,7 +69,7 @@ declare global {
      * ["a", "b", "c"].mapAccumR((i, char) => [i + 1, `${i}:${char}`], 0)
      * // → [3, ["2:c", "1:b", "0:a"]]
      */
-    mapAccumR<B, S>(f: (acc: S, a: T) => [S, B], init: S): [S, B[]];
+    mapAccumR?: <B, S>(f: (acc: S, a: T) => [S, B], init: S) => [S, B[]];
 
     /**
      * Zip two arrays with a combining function
@@ -84,7 +84,7 @@ declare global {
      * [1, 2, 3].zipWith(["a", "b", "c"], (n, s) => `${n}${s}`)
      * // → ["1a", "2b", "3c"]
      */
-    zipWith<B, C>(other: B[], f: (a: T, b: B) => C): C[];
+    zipWith?: <B, C>(other: B[], f: (a: T, b: B) => C) => C[];
 
     /**
      * Group adjacent elements by key
@@ -98,7 +98,7 @@ declare global {
      * [1, 1, 2, 2, 2, 1].groupAdjacentBy(x => x)
      * // → [[1, 1], [2, 2, 2], [1]]
      */
-    groupAdjacentBy<K>(keyFn: (item: T) => K): T[][];
+    groupAdjacentBy?: <K>(keyFn: (item: T) => K) => T[][];
 
     /**
      * Partition array based on a function that returns Left or Right
@@ -113,7 +113,7 @@ declare global {
      * )
      * // → [['odd:1', 'odd:3'], [4, 8]]
      */
-    partitionMap<L, R>(f: (item: T) => Left<L> | Right<R>): [L[], R[]];
+    partitionMap?: <L, R>(f: (item: T) => Left<L> | Right<R>) => [L[], R[]];
 
     /**
      * Break array into chunks of specified size
@@ -126,7 +126,7 @@ declare global {
      * [1, 2, 3, 4, 5].chunkBySize(2)
      * // → [[1, 2], [3, 4], [5]]
      */
-    chunkBySize(size: number): T[][];
+    chunkBySize?: (size: number) => T[][];
 
     /**
      * Return intersection of two arrays
@@ -139,7 +139,7 @@ declare global {
      * [1, 2, 3, 4].intersect([2, 4, 6])
      * // → [2, 4]
      */
-    intersect(other: T[]): T[];
+    intersect?: (other: T[]) => T[];
   }
 }
 
