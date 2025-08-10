@@ -26,9 +26,7 @@ import {
   lift2, composeK, sequence, traverse
 } from './fp-typeclasses-hkt';
 
-import {
-  DeepImmutable, ImmutableArray
-} from './fp-immutable';
+
 
 import { 
   deriveInstances, 
@@ -377,22 +375,7 @@ export class PersistentList<T> {
     }
   }
 
-  /**
-   * Iterator for PersistentList
-   */
-  [Symbol.iterator](): Iterator<T> {
-    let index = 0;
-    return {
-      next: (): IteratorResult<T> => {
-        if (index >= this._size) {
-          return { done: true, value: undefined };
-        }
-        const value = this.get(index);
-        index++;
-        return { done: false, value: value! };
-      }
-    };
-  }
+
   
   // Private helper methods for internal operations
   private static createNode<T>(arr: readonly T[], height: number): ListNode<T> {
@@ -683,15 +666,15 @@ export class PersistentMap<K, V> {
   /**
    * Get all keys
    */
-  keys(): Iterable<K> {
-    return this.entries().map(([key]) => key);
+  *keys(): IterableIterator<K> {
+    for (const [k] of this.entries()) yield k;
   }
   
   /**
    * Get all values
    */
-  values(): Iterable<V> {
-    return this.entries().map(([, value]) => value);
+  *values(): IterableIterator<V> {
+    for (const [, v] of this.entries()) yield v;
   }
   
   /**
@@ -756,12 +739,7 @@ export class PersistentMap<K, V> {
     }
   }
 
-  /**
-   * Iterator for PersistentMap entries
-   */
-  [Symbol.iterator](): Iterator<[K, V]> {
-    return this.entries()[Symbol.iterator]();
-  }
+
   
   // Private helper methods
   private hash(key: K): number {
@@ -1064,12 +1042,7 @@ export class PersistentSet<T> {
     }
   }
 
-  /**
-   * Iterator for PersistentSet
-   */
-  [Symbol.iterator](): Iterator<T> {
-    return this.map[Symbol.iterator]();
-  }
+
 }
 
 // ============================================================================
@@ -1112,7 +1085,6 @@ export const PersistentListInstances = deriveInstances({
     fa.map(f),
   customChain: <A, B>(fa: PersistentList<A>, f: (a: A) => PersistentList<B>): PersistentList<B> => {
     const result: B[] = [];
-attachPurityMarker(PersistentListInstances, 'Pure');
     for (const a of fa) {
       for (const b of f(a)) {
         result.push(b);
@@ -1537,29 +1509,24 @@ export function unzip<A, B>(list: PersistentList<[A, B]>): [PersistentList<A>, P
  */ 
 
 // ============================================================================
-// Part 10: Derived Typeclass Instances
+// Part 10: Alternative HKT Derivation (Commented Out)
 // ============================================================================
 
-/**
- * PersistentList derived instances
+/*
+ * Alternative HKT-based derived instances
+ * These are commented out to avoid conflicts with the main derived instances in Part 6
+ * 
+ * Uncomment and use these if you prefer HKT-based derivation over the current approach
  */
-export const PersistentListInstances = deriveInstances<PersistentListK>({
+
+/*
+export const PersistentListInstancesAlt = deriveInstances<PersistentListK>({
   map: (fa, f) => fa.map(f),
   chain: (fa, f) => fa.flatMap ? fa.flatMap(f) : fa.map(f).foldLeft(PersistentList.empty<ReturnType<typeof f>>(), (acc, val) => acc.append(val)),
   of: PersistentList.of
 });
 
-export const PersistentListFunctor = PersistentListInstances.functor;
-export const PersistentListApplicative = PersistentListInstances.applicative;
-export const PersistentListMonad = PersistentListInstances.monad;
-export const PersistentListEq = deriveEqInstance(PersistentList);
-export const PersistentListOrd = deriveOrdInstance(PersistentList);
-export const PersistentListShow = deriveShowInstance(PersistentList);
-
-/**
- * PersistentMap derived instances
- */
-export const PersistentMapInstances = deriveInstances<PersistentMapK>({
+export const PersistentMapInstancesAlt = deriveInstances<PersistentMapK>({
   map: (fa, f) => fa.map(f),
   bimap: (fa, fk, fv) => {
     const entries = Array.from(fa.entries());
@@ -1569,24 +1536,11 @@ export const PersistentMapInstances = deriveInstances<PersistentMapK>({
   of: (value) => PersistentMap.of(value)
 });
 
-export const PersistentMapFunctor = PersistentMapInstances.functor;
-export const PersistentMapBifunctor = PersistentMapInstances.bifunctor;
-export const PersistentMapEq = deriveEqInstance(PersistentMap);
-export const PersistentMapOrd = deriveOrdInstance(PersistentMap);
-export const PersistentMapShow = deriveShowInstance(PersistentMap);
-
-/**
- * PersistentSet derived instances
- */
-export const PersistentSetInstances = deriveInstances<PersistentSetK>({
+export const PersistentSetInstancesAlt = deriveInstances<PersistentSetK>({
   map: (fa, f) => fa.map(f),
   of: (value) => PersistentSet.of(value)
 });
-
-export const PersistentSetFunctor = PersistentSetInstances.functor;
-export const PersistentSetEq = deriveEqInstance(PersistentSet);
-export const PersistentSetOrd = deriveOrdInstance(PersistentSet);
-export const PersistentSetShow = deriveShowInstance(PersistentSet);
+*/
 
 // ============================================================================
 // Part 11: Fluent API Integration
