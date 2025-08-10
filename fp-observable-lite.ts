@@ -2372,38 +2372,7 @@ declare module './fp-observable-lite' {
 // Part 14: Exports
 // ============================================================================
 
-export {
-  ObservableLite,
-  ObservableLiteK,
-  ObservableLiteWithEffect,
-  ApplyObservableLite,
-  ObservableLiteOf,
-  EffectOfObservableLite,
-  IsObservableLitePure,
-  IsObservableLiteImpure,
-  ObservableLiteFunctor,
-  ObservableLiteApplicative,
-  ObservableLiteMonad,
-  ObservableLiteProfunctor,
-  ObservableLiteEq,
-  ObservableLiteOrd,
-  ObservableLiteShow,
-  registerObservableLiteInstances,
-  isObservableLite,
-  isObservableLiteOf,
-  createObservable,
-  fromTry,
-  // Fusion integration
-  planFromObservableLite,
-  observableFromPlan,
-  optimizeObservableLite,
-  optimizePipeline,
-  createObservableLiteFusionOptimizer,
-  canOptimizeObservableLite,
-  getObservableLiteFusionStats,
-  // Common operations
-  CommonStreamOps
-};
+
 
 // ============================================================================
 // Part 15: Unified Fluent API Integration

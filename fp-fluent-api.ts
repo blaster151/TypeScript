@@ -628,23 +628,4 @@ export type {
   StreamFluentOps,
   ADTFluentOps,
   FluentImpl
-};
-
-export {
-  applyFluentOps,
-  isObservableLite,
-  isStatefulStream,
-  isMaybe,
-  isEither,
-  isResult,
-  isFluentType,
-  toObservableLite,
-  toStatefulStream,
-  toMaybe,
-  toEither,
-  toResult,
-  hasSameAPI,
-  createUnifiedStream,
-  registerUnifiedInstances,
-  applyFluentAPI
 }; 

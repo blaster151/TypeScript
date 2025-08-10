@@ -282,7 +282,7 @@ export interface TupleK extends Kind2 {
  * Function type constructor as HKT (contravariant in first arg, covariant in second)
  */
 export interface FunctionK extends Kind2 {
-  readonly type: (this['arg0']) => this['arg1'];
+  readonly type: (arg: this['arg0']) => this['arg1'];
 }
 
 /**

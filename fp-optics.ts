@@ -156,42 +156,19 @@ export interface IdentityProfunctor extends Profunctor<FunctionK> {
     p: (a: A) => B,
     f: (c: C) => A,
     g: (b: B) => D
-  ): (c: C) => D {
-    return (c: C) => g(p(f(c)));
-  }
+  ): (c: C) => D;
   
-  lmap<A, B, C>(p: (a: A) => B, f: (c: C) => A): (c: C) => B {
-    return (c: C) => p(f(c));
-  }
+  lmap<A, B, C>(p: (a: A) => B, f: (c: C) => A): (c: C) => B;
   
-  rmap<A, B, D>(p: (a: A) => B, g: (b: B) => D): (a: A) => D {
-    return (a: A) => g(p(a));
-  }
+  rmap<A, B, D>(p: (a: A) => B, g: (b: B) => D): (a: A) => D;
 }
 
 /**
  * Identity Choice - extends IdentityProfunctor with choice operations
  */
 export interface IdentityChoice extends Choice<FunctionK>, IdentityProfunctor {
-  left<A, B, C>(p: (a: A) => B): (e: Either<A, C>) => Either<B, C> {
-    return (e: Either<A, C>) => {
-      if ('left' in e) {
-        return { left: p(e.left) };
-      } else {
-        return { right: e.right };
-      }
-    };
-  }
-  
-  right<A, B, C>(p: (a: A) => B): (e: Either<C, A>) => Either<C, B> {
-    return (e: Either<C, A>) => {
-      if ('left' in e) {
-        return { left: e.left };
-      } else {
-        return { right: p(e.right) };
-      }
-    };
-  }
+  left<A, B, C>(p: (a: A) => B): (e: Either<A, C>) => Either<B, C>;
+  right<A, B, C>(p: (a: A) => B): (e: Either<C, A>) => Either<C, B>;
 }
 
 /**
@@ -202,24 +179,15 @@ export interface IdentityTraversing extends Traversing<FunctionK>, IdentityProfu
     app: Applicative<F>,
     pab: (a: A) => B,
     fa: Apply<F, [A]>
-  ): Apply<F, [(a: A) => B]> {
-    // This is a simplified implementation
-    // In practice, we'd need more sophisticated traversal logic
-    return app.map(fa, (a: A) => pab);
-  }
+  ): Apply<F, [(a: A) => B]>;
 }
 
 /**
  * Identity Strong - extends IdentityProfunctor with strength operations
  */
 export interface IdentityStrong extends Strong<FunctionK>, IdentityProfunctor {
-  first<A, B, C>(p: (a: A) => B): (pair: [A, C]) => [B, C] {
-    return ([a, c]: [A, C]) => [p(a), c];
-  }
-  
-  second<A, B, C>(p: (a: A) => B): (pair: [C, A]) => [C, B] {
-    return ([c, a]: [C, A]) => [c, p(a)];
-  }
+  first<A, B, C>(p: (a: A) => B): (pair: [A, C]) => [B, C];
+  second<A, B, C>(p: (a: A) => B): (pair: [C, A]) => [C, B];
 }
 
 // ============================================================================

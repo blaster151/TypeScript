@@ -12,7 +12,58 @@ import {
 } from './fp-adt-registry';
 
 // ============================================================================
-// Part 1: Enhanced Pattern Matching Types
+// Part 1: DRY Helper Functions
+// ============================================================================
+
+/**
+ * Generic tag dispatch helper for pattern matching with payload
+ */
+function dispatch<Tag extends string, Payload, Result>(
+  tag: Tag, 
+  payload: Payload,
+  handlers: { [K in Tag]?: (p: any) => Result } & { 
+    _?: (t: string, p: any) => Result; 
+    otherwise?: (t: string, p: any) => Result 
+  }
+): Result {
+  const handler = handlers[tag];
+  if (handler) {
+    return handler(payload);
+  }
+  
+  const fallback = handlers._ || handlers.otherwise;
+  if (fallback) {
+    return fallback(tag, payload);
+  }
+  
+  throw new Error(`Unhandled tag: ${tag}`);
+}
+
+/**
+ * Generic tag dispatch helper for tag-only pattern matching
+ */
+function dispatchTag<Tag extends string, Result>(
+  tag: Tag,
+  handlers: { [K in Tag]?: () => Result } & { 
+    _?: (t: string) => Result; 
+    otherwise?: (t: string) => Result 
+  }
+): Result {
+  const handler = handlers[tag];
+  if (handler) {
+    return handler();
+  }
+  
+  const fallback = handlers._ || handlers.otherwise;
+  if (fallback) {
+    return fallback(tag);
+  }
+  
+  throw new Error(`Unhandled tag: ${tag}`);
+}
+
+// ============================================================================
+// Part 2: Enhanced Pattern Matching Types
 // ============================================================================
 
 /**
@@ -44,7 +95,7 @@ export type TagOnlyHandlers<Spec, Result> = {
 };
 
 // ============================================================================
-// Part 2: Enhanced ADT Instance Types
+// Part 3: Enhanced ADT Instance Types
 // ============================================================================
 
 /**
@@ -93,7 +144,7 @@ export interface ImmutableADTInstance<Tag extends string, Payload = any>
 }
 
 // ============================================================================
-// Part 3: Enhanced Maybe Implementation
+// Part 4: Enhanced Maybe Implementation
 // ============================================================================
 
 /**
@@ -115,15 +166,13 @@ export class EnhancedMaybe<A> implements EnhancedADTInstance<'Just' | 'Nothing',
     _?: (tag: string, payload: any) => Result;
     otherwise?: (tag: string, payload: any) => Result;
   }): Result {
-    const handler = handlers[this.tag];
-    const fallback = handlers._ || handlers.otherwise;
-    
-    if (handler) {
-      return handler(this.payload as any);
-    } else if (fallback) {
-      return fallback(this.tag, this.payload);
+    // Use DRY helper with proper payload casting
+    if (this.tag === 'Just' && handlers.Just) {
+      return handlers.Just(this.payload as { value: A });
+    } else if (this.tag === 'Nothing' && handlers.Nothing) {
+      return handlers.Nothing(this.payload as {});
     } else {
-      throw new Error(`Unhandled tag: ${this.tag}`);
+      return dispatch(this.tag, this.payload, handlers);
     }
   }
   
@@ -133,20 +182,25 @@ export class EnhancedMaybe<A> implements EnhancedADTInstance<'Just' | 'Nothing',
     _?: (tag: string) => Result;
     otherwise?: (tag: string) => Result;
   }): Result {
-    const handler = handlers[this.tag];
-    const fallback = handlers._ || handlers.otherwise;
-    
-    if (handler) {
-      return handler();
-    } else if (fallback) {
-      return fallback(this.tag);
-    } else {
-      throw new Error(`Unhandled tag: ${this.tag}`);
-    }
+    return dispatchTag(this.tag, handlers);
   }
   
   is<K extends 'Just' | 'Nothing'>(tag: K): this is EnhancedADTInstance<K, { value?: A }> {
     return this.tag === tag;
+  }
+  
+  /**
+   * Type guard for Just variant with payload refinement
+   */
+  isJust(): this is EnhancedADTInstance<'Just', { value: A }> {
+    return this.tag === 'Just';
+  }
+  
+  /**
+   * Type guard for Nothing variant with payload refinement
+   */
+  isNothing(): this is EnhancedADTInstance<'Nothing', {}> {
+    return this.tag === 'Nothing';
   }
   
   getPayload(): { value?: A } {
@@ -210,15 +264,17 @@ export class EnhancedEither<L, R> implements EnhancedADTInstance<'Left' | 'Right
     _?: (tag: string, payload: any) => Result;
     otherwise?: (tag: string, payload: any) => Result;
   }): Result {
-    const handler = handlers[this.tag];
-    const fallback = handlers._ || handlers.otherwise;
-    
-    if (handler) {
-      return handler(this.payload as any);
-    } else if (fallback) {
-      return fallback(this.tag, this.payload);
+    if (this.tag === 'Left' && handlers.Left) {
+      return handlers.Left(this.payload as { value: L });
+    } else if (this.tag === 'Right' && handlers.Right) {
+      return handlers.Right(this.payload as { value: R });
     } else {
-      throw new Error(`Unhandled tag: ${this.tag}`);
+      const fallback = handlers._ || handlers.otherwise;
+      if (fallback) {
+        return fallback(this.tag, this.payload);
+      } else {
+        throw new Error(`Unhandled tag: ${this.tag}`);
+      }
     }
   }
   
@@ -242,6 +298,20 @@ export class EnhancedEither<L, R> implements EnhancedADTInstance<'Left' | 'Right
   
   is<K extends 'Left' | 'Right'>(tag: K): this is EnhancedADTInstance<K, { value: L | R }> {
     return this.tag === tag;
+  }
+  
+  /**
+   * Type guard for Left variant with payload refinement
+   */
+  isLeft(): this is EnhancedADTInstance<'Left', { value: L }> {
+    return this.tag === 'Left';
+  }
+  
+  /**
+   * Type guard for Right variant with payload refinement
+   */
+  isRight(): this is EnhancedADTInstance<'Right', { value: R }> {
+    return this.tag === 'Right';
   }
   
   getPayload(): { value: L | R } {
@@ -305,15 +375,17 @@ export class EnhancedResult<T, E> implements EnhancedADTInstance<'Ok' | 'Err', {
     _?: (tag: string, payload: any) => Result;
     otherwise?: (tag: string, payload: any) => Result;
   }): Result {
-    const handler = handlers[this.tag];
-    const fallback = handlers._ || handlers.otherwise;
-    
-    if (handler) {
-      return handler(this.payload as any);
-    } else if (fallback) {
-      return fallback(this.tag, this.payload);
+    if (this.tag === 'Ok' && handlers.Ok) {
+      return handlers.Ok(this.payload as { value: T });
+    } else if (this.tag === 'Err' && handlers.Err) {
+      return handlers.Err(this.payload as { error: E });
     } else {
-      throw new Error(`Unhandled tag: ${this.tag}`);
+      const fallback = handlers._ || handlers.otherwise;
+      if (fallback) {
+        return fallback(this.tag, this.payload);
+      } else {
+        throw new Error(`Unhandled tag: ${this.tag}`);
+      }
     }
   }
   
@@ -337,6 +409,20 @@ export class EnhancedResult<T, E> implements EnhancedADTInstance<'Ok' | 'Err', {
   
   is<K extends 'Ok' | 'Err'>(tag: K): this is EnhancedADTInstance<K, { value?: T; error?: E }> {
     return this.tag === tag;
+  }
+  
+  /**
+   * Type guard for Ok variant with payload refinement
+   */
+  isOk(): this is EnhancedADTInstance<'Ok', { value: T }> {
+    return this.tag === 'Ok';
+  }
+  
+  /**
+   * Type guard for Err variant with payload refinement
+   */
+  isErr(): this is EnhancedADTInstance<'Err', { error: E }> {
+    return this.tag === 'Err';
   }
   
   getPayload(): { value?: T; error?: E } {
