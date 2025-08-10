@@ -430,15 +430,19 @@ export function deriveShow<A>(config: DerivationConfig = {}): Show<A> {
 }
 
 // ============================================================================
-// Main Derivation Function
+// Main Derivation Function (DEPRECATED)
 // ============================================================================
 
 /**
  * Derive all requested instances for an ADT
+ * @deprecated Use individual derivation functions (deriveEqInstance, deriveFunctorInstance, etc.) instead.
+ * This function will be removed in a future version.
  */
 export function deriveInstances<F extends Kind<any[]>>(
   config: DerivationConfig
 ): DerivedInstances {
+  console.warn('⚠️ deriveInstances is deprecated. Use individual derivation functions instead.');
+  
   const instances: DerivedInstances = {};
 
   if (config.functor) {

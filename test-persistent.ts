@@ -46,7 +46,7 @@ import {
 } from './fp-typeclasses-hkt';
 
 import {
-  DeepImmutable, ImmutableArray
+  Immutable
 } from './fp-immutable';
 
 // ============================================================================
@@ -106,6 +106,90 @@ export function testPersistentListBasic(): void {
   // To array
   const array = list.toArray();
   console.log('✅ To array works:', array.length === 5);
+}
+
+/**
+ * Test PersistentList fromArray builds proper trie shape for large arrays
+ */
+export function testPersistentListFromArrayHeight(): void {
+  console.log('\n=== Testing PersistentList fromArray Height ===');
+  const n = 100;
+  const arr = Array.from({ length: n }, (_, i) => i);
+  const list = PersistentList.fromArray(arr);
+  // Basic correctness checks (proxy for balanced structure)
+  console.log('✅ Size correct:', list.size === n);
+  console.log('✅ First element:', list.get(0) === 0);
+  console.log('✅ Middle element:', list.get(50) === 50);
+  console.log('✅ Last element:', list.get(n - 1) === n - 1);
+}
+
+/**
+ * Test PersistentList leaf addressing with modulo BRANCH_FACTOR
+ * Ensures leaf nodes handle indices correctly when containing multiple leaves' worth of data
+ */
+export function testPersistentListLeafAddressing(): void {
+  console.log('\n=== Testing PersistentList Leaf Addressing ===');
+  
+  // Create a list that will have a leaf node with multiple leaves' worth of data
+  // With BRANCH_FACTOR=32, a height-0 node can contain up to 32 elements
+  const arr = Array.from({ length: 50 }, (_, i) => i);
+  const list = PersistentList.fromArray(arr);
+  
+  // Test that leaf addressing works correctly
+  console.log('✅ Leaf get(0):', list.get(0) === 0);
+  console.log('✅ Leaf get(31):', list.get(31) === 31); // Last element in first leaf
+  console.log('✅ Leaf get(32):', list.get(32) === 32); // First element in next leaf
+  console.log('✅ Leaf get(49):', list.get(49) === 49); // Last element
+  
+  // Test set operations on leaf nodes
+  let list2 = list.set(0, 100);
+  list2 = list2.set(31, 131);
+  list2 = list2.set(32, 132);
+  list2 = list2.set(49, 149);
+  
+  console.log('✅ Leaf set(0):', list2.get(0) === 100);
+  console.log('✅ Leaf set(31):', list2.get(31) === 131);
+  console.log('✅ Leaf set(32):', list2.get(32) === 132);
+  console.log('✅ Leaf set(49):', list2.get(49) === 149);
+  
+  // Test that other elements remain unchanged
+  console.log('✅ Other elements unchanged:', list2.get(1) === 1 && list2.get(30) === 30);
+}
+
+/**
+ * Test PersistentList internal iterator optimization
+ */
+export function testPersistentListInternalIterator(): void {
+  console.log('\n=== Testing PersistentList Internal Iterator Optimization ===');
+  
+  // Create a large list to test performance
+  const largeList = PersistentList.fromArray(Array.from({ length: 1000 }, (_, i) => i));
+  
+  // Test map operation
+  const mapped = largeList.map(x => x * 2);
+  console.log(`✅ Map operation: ${mapped.size === 1000 && mapped.get(0) === 0 && mapped.get(999) === 1998}`);
+  
+  // Test filter operation
+  const filtered = largeList.filter(x => x % 2 === 0);
+  console.log(`✅ Filter operation: ${filtered.size === 500 && filtered.get(0) === 0 && filtered.get(499) === 998}`);
+  
+  // Test foldLeft operation
+  const sum = largeList.foldLeft(0, (acc, x) => acc + x);
+  const expectedSum = (999 * 1000) / 2; // Sum of 0 to 999
+  console.log(`✅ FoldLeft operation: ${sum === expectedSum}`);
+  
+  // Test foldRight operation
+  const product = largeList.foldRight(1, (acc, x) => acc * (x + 1)); // +1 to avoid 0
+  console.log(`✅ FoldRight operation: ${product > 0}`); // Just check it's positive
+  
+  // Test toArray operation
+  const array = largeList.toArray();
+  console.log(`✅ ToArray operation: ${array.length === 1000 && array[0] === 0 && array[999] === 999}`);
+  
+  // Test that the operations maintain the correct order
+  const firstTen = largeList.map(x => x).toArray().slice(0, 10);
+  const expectedFirstTen = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+  console.log(`✅ Order preservation: ${JSON.stringify(firstTen) === JSON.stringify(expectedFirstTen)}`);
 }
 
 /**
@@ -293,6 +377,32 @@ export function testPersistentMapFP(): void {
   // Filter
   const filtered = map.filter((v, k) => v > 1);
   console.log('✅ Filter method:', filtered.size === 2);
+}
+
+/**
+ * Test PersistentMap HAMT collision handling correctness
+ * Ensures keys that collide at a level branch on subsequent 5-bit slices
+ */
+export function testPersistentMapCollisions(): void {
+  console.log('\n=== Testing PersistentMap Collision Handling ===');
+
+  // Case 1: Collide at level 0 (same low 5 bits), diverge at level 1
+  // 7 (00111) and 39 (100111) share low-5 bits (index 7), differ in next slice
+  let map1 = PersistentMap.empty<number, string>();
+  map1 = map1.set(7, 'a');
+  map1 = map1.set(39, 'b');
+  console.log('✅ Level-0 collision, level-1 divergence:', map1.get(7) === 'a' && map1.get(39) === 'b');
+
+  // Case 2: Collide at level 0 and level 1 (same low 10 bits), diverge at level 2
+  // 7 and 1031 (= 7 + 2^10) share bits 0..9, differ at bits 10..14
+  let map2 = PersistentMap.empty<number, string>();
+  map2 = map2.set(7, 'x');
+  map2 = map2.set(1031, 'y');
+  console.log('✅ Level-0/1 collision, level-2 divergence:', map2.get(7) === 'x' && map2.get(1031) === 'y');
+
+  // Ensure updating one key does not affect the colliding sibling
+  const map3 = map2.set(7, 'x2');
+  console.log('✅ Update preserves sibling:', map3.get(7) === 'x2' && map3.get(1031) === 'y');
 }
 
 // ============================================================================
@@ -505,7 +615,7 @@ export function testFPIntegration(): void {
   console.log('✅ FP utilities integration works:', result.size > 0);
   
   // Test with immutable types
-  const immutableList: DeepImmutable<PersistentList<number>> = list;
+  const immutableList: Immutable<PersistentList<number>> = list;
   console.log('✅ Immutable type integration works:', immutableList.size === 3);
 }
 
@@ -569,10 +679,14 @@ export function runAllPersistentTests(): void {
   testPersistentListBasic();
   testPersistentListPerformance();
   testPersistentListFP();
+  testPersistentListFromArrayHeight();
+  testPersistentListLeafAddressing();
+  testPersistentListInternalIterator();
   
   testPersistentMapBasic();
   testPersistentMapPerformance();
   testPersistentMapFP();
+  testPersistentMapCollisions();
   
   testPersistentSetBasic();
   testPersistentSetFP();

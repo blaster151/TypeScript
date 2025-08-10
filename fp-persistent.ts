@@ -29,10 +29,13 @@ import {
 
 
 import { 
-  deriveInstances, 
   deriveEqInstance, 
   deriveOrdInstance, 
-  deriveShowInstance 
+  deriveShowInstance,
+  deriveFunctorInstance,
+  deriveApplicativeInstance,
+  deriveMonadInstance,
+  deriveBifunctorInstance
 } from './fp-derivation-helpers';
 
 import { applyFluentOps, FluentImpl } from './fp-fluent-api';
@@ -129,7 +132,10 @@ export class PersistentList<T> {
       return PersistentList.empty<T>();
     }
     
-    const root = PersistentList.createNode(arr, 0);
+    // Build a balanced vector-trie: compute height from array length and branch factor (32)
+    const BRANCH_FACTOR = 32;
+    const height = Math.max(0, Math.ceil(Math.log(arr.length) / Math.log(BRANCH_FACTOR)) - 1);
+    const root = PersistentList.createNode(arr, height);
     return new PersistentList<T>(root, arr.length);
   }
   
@@ -232,12 +238,14 @@ export class PersistentList<T> {
    */
   map<U>(fn: (value: T, index: number) => U): PersistentList<U> {
     const result: U[] = [];
-    for (let i = 0; i < this._size; i++) {
-      const value = this.get(i);
-      if (value !== undefined) {
-        result.push(fn(value, i));
-      }
+    let index = 0;
+    
+    if (this.root) {
+      PersistentList.traverseNode(this.root, (value) => {
+        result.push(fn(value, index++));
+      });
     }
+    
     return PersistentList.fromArray(result);
   }
   
@@ -246,12 +254,17 @@ export class PersistentList<T> {
    */
   filter(fn: (value: T, index: number) => boolean): PersistentList<T> {
     const result: T[] = [];
-    for (let i = 0; i < this._size; i++) {
-      const value = this.get(i);
-      if (value !== undefined && fn(value, i)) {
-        result.push(value);
-      }
+    let index = 0;
+    
+    if (this.root) {
+      PersistentList.traverseNode(this.root, (value) => {
+        if (fn(value, index)) {
+          result.push(value);
+        }
+        index++;
+      });
     }
+    
     return PersistentList.fromArray(result);
   }
   
@@ -260,12 +273,14 @@ export class PersistentList<T> {
    */
   foldLeft<U>(initial: U, fn: (acc: U, value: T, index: number) => U): U {
     let acc = initial;
-    for (let i = 0; i < this._size; i++) {
-      const value = this.get(i);
-      if (value !== undefined) {
-        acc = fn(acc, value, i);
-      }
+    let index = 0;
+    
+    if (this.root) {
+      PersistentList.traverseNode(this.root, (value) => {
+        acc = fn(acc, value, index++);
+      });
     }
+    
     return acc;
   }
   
@@ -274,12 +289,19 @@ export class PersistentList<T> {
    */
   foldRight<U>(initial: U, fn: (acc: U, value: T, index: number) => U): U {
     let acc = initial;
-    for (let i = this._size - 1; i >= 0; i--) {
-      const value = this.get(i);
-      if (value !== undefined) {
-        acc = fn(acc, value, i);
-      }
+    const elements: T[] = [];
+    
+    if (this.root) {
+      PersistentList.traverseNode(this.root, (value) => {
+        elements.push(value);
+      });
     }
+    
+    // Process elements in reverse order
+    for (let i = elements.length - 1; i >= 0; i--) {
+      acc = fn(acc, elements[i], i);
+    }
+    
     return acc;
   }
   
@@ -288,12 +310,13 @@ export class PersistentList<T> {
    */
   toArray(): readonly T[] {
     const result: T[] = [];
-    for (let i = 0; i < this._size; i++) {
-      const value = this.get(i);
-      if (value !== undefined) {
+    
+    if (this.root) {
+      PersistentList.traverseNode(this.root, (value) => {
         result.push(value);
-      }
+      });
     }
+    
     return result;
   }
   
@@ -364,6 +387,39 @@ export class PersistentList<T> {
   }
 
   /**
+   * Concatenate this list with another list
+   * @param other - The list to concatenate with
+   * @returns A new list containing all elements from both lists
+   */
+  concat(other: PersistentList<T>): PersistentList<T> {
+    if (other.isEmpty()) {
+      return this;
+    }
+    if (this.isEmpty()) {
+      return other;
+    }
+    
+    // Use the optimized internal iterator for better performance
+    const result: T[] = [];
+    
+    // Add elements from this list
+    if (this.root) {
+      PersistentList.traverseNode(this.root, (value) => {
+        result.push(value);
+      });
+    }
+    
+    // Add elements from other list
+    if (other.root) {
+      PersistentList.traverseNode(other.root, (value) => {
+        result.push(value);
+      });
+    }
+    
+    return PersistentList.fromArray(result);
+  }
+
+  /**
    * ForEach operation for PersistentList
    */
   forEach(fn: (value: T, index: number) => void): void {
@@ -406,7 +462,8 @@ export class PersistentList<T> {
     const BRANCH_FACTOR = 32;
     
     if (height === 0) {
-      return node.elements[index];
+      // Leaf case: index should be modulo BRANCH_FACTOR since leaf can contain multiple leaves' worth of data
+      return node.elements[index % BRANCH_FACTOR];
     }
     
     const childIndex = Math.floor(index / Math.pow(BRANCH_FACTOR, height));
@@ -466,8 +523,9 @@ export class PersistentList<T> {
     const BRANCH_FACTOR = 32;
     
     if (height === 0) {
+      // Leaf case: index should be modulo BRANCH_FACTOR since leaf can contain multiple leaves' worth of data
       const newElements = [...node.elements];
-      newElements.splice(index, 0, value);
+      newElements.splice(index % BRANCH_FACTOR, 0, value);
       return new ListNode(newElements, node.children, height);
     }
     
@@ -491,8 +549,9 @@ export class PersistentList<T> {
     const BRANCH_FACTOR = 32;
     
     if (height === 0) {
+      // Leaf case: index should be modulo BRANCH_FACTOR since leaf can contain multiple leaves' worth of data
       const newElements = [...node.elements];
-      newElements.splice(index, 1);
+      newElements.splice(index % BRANCH_FACTOR, 1);
       return new ListNode(newElements, node.children, height);
     }
     
@@ -511,8 +570,9 @@ export class PersistentList<T> {
     const BRANCH_FACTOR = 32;
     
     if (height === 0) {
+      // Leaf case: index should be modulo BRANCH_FACTOR since leaf can contain multiple leaves' worth of data
       const newElements = [...node.elements];
-      newElements[index] = value;
+      newElements[index % BRANCH_FACTOR] = value;
       return new ListNode(newElements, node.children, height);
     }
     
@@ -525,6 +585,24 @@ export class PersistentList<T> {
     newChildren[childIndex] = newChild;
     
     return new ListNode(node.elements, newChildren, height);
+  }
+
+  /**
+   * Internal iterator that walks the trie structure in-order
+   * This provides O(n) performance instead of O(n log n) for operations like map/filter/fold
+   */
+  private static traverseNode<T>(node: ListNode<T>, callback: (value: T) => void): void {
+    if (node.height === 0) {
+      // Leaf node: iterate over elements
+      for (const element of node.elements) {
+        callback(element);
+      }
+    } else {
+      // Internal node: recursively traverse children
+      for (const child of node.children) {
+        PersistentList.traverseNode(child, callback);
+      }
+    }
   }
 }
 
@@ -742,6 +820,7 @@ export class PersistentMap<K, V> {
 
   
   // Private helper methods
+  // Instance hash used by public APIs before delegating to static trie ops
   private hash(key: K): number {
     if (typeof key === 'string') {
       let hash = 0;
@@ -759,6 +838,25 @@ export class PersistentMap<K, V> {
     
     // Simple hash for other types
     return JSON.stringify(key).split('').reduce((hash, char) => {
+      return ((hash << 5) - hash) + char.charCodeAt(0);
+    }, 0);
+  }
+  
+  // Static hash helper for use within static trie operations
+  private static hashKeyStatic(key: unknown): number {
+    if (typeof key === 'string') {
+      let hash = 0;
+      for (let i = 0; i < key.length; i++) {
+        const char = key.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32-bit integer
+      }
+      return hash;
+    }
+    if (typeof key === 'number') {
+      return key;
+    }
+    return JSON.stringify(key as any).split('').reduce((hash, char) => {
       return ((hash << 5) - hash) + char.charCodeAt(0);
     }, 0);
   }
@@ -874,9 +972,31 @@ export class PersistentMap<K, V> {
     return count;
   }
   
-  private static createCollisionNode<K, V>(key1: K, value1: V, key2: K, value2: V, hash: number, level: number): MapNode<K, V> {
-    // Simple collision resolution - create a new node with both entries
-    return new MapNode(3, [[key1, value1], [key2, value2]]);
+  private static createCollisionNode<K, V>(key1: K, value1: V, key2: K, value2: V, hash2: number, level: number): MapNode<K, V> {
+    // Proper collision handling: descend by 5-bit slices until indices diverge.
+    // If they diverge at this level, build a node with two leaves at their respective bits.
+    // If they do not diverge, build a single-bit node whose child continues the descent.
+    const mask = 31;
+    const shift = level * 5;
+    const h1 = PersistentMap.hashKeyStatic(key1);
+    const h2 = hash2;
+    const idx1 = (h1 >> shift) & mask;
+    const idx2 = (h2 >> shift) & mask;
+    if (idx1 !== idx2) {
+      const bit1 = 1 << idx1;
+      const bit2 = 1 << idx2;
+      const bitmap = bit1 | bit2;
+      // Children must be ordered by index to align with popCount-based addressing
+      const children: readonly ([K, V] | MapNode<K, V>)[] = idx1 < idx2
+        ? [[key1, value1], [key2, value2]]
+        : [[key2, value2], [key1, value1]];
+      return new MapNode(bitmap, children);
+    }
+    // Same index at this level – continue descending under a single-bit child
+    const bit = 1 << idx1;
+    // Recurse to construct the deeper structure
+    const child = PersistentMap.createCollisionNode(key1, value1, key2, value2, hash2, level + 1);
+    return new MapNode(bit, [child]);
   }
 }
 
@@ -1077,10 +1197,17 @@ export interface PersistentSetK extends Kind1 {
 /**
  * PersistentList derived instances
  */
-export const PersistentListInstances = deriveInstances({
-  functor: true,
-  applicative: true,
-  monad: true,
+export const PersistentListFunctor = deriveFunctorInstance<PersistentListK>({
+  customMap: <A, B>(fa: PersistentList<A>, f: (a: A) => B): PersistentList<B> => 
+    fa.map(f)
+});
+
+export const PersistentListApplicative = deriveApplicativeInstance<PersistentListK>({
+  customMap: <A, B>(fa: PersistentList<A>, f: (a: A) => B): PersistentList<B> => 
+    fa.map(f)
+});
+
+export const PersistentListMonad = deriveMonadInstance<PersistentListK>({
   customMap: <A, B>(fa: PersistentList<A>, f: (a: A) => B): PersistentList<B> => 
     fa.map(f),
   customChain: <A, B>(fa: PersistentList<A>, f: (a: A) => PersistentList<B>): PersistentList<B> => {
@@ -1093,10 +1220,6 @@ export const PersistentListInstances = deriveInstances({
     return PersistentList.fromArray(result);
   }
 });
-
-export const PersistentListFunctor = PersistentListInstances.functor;
-export const PersistentListApplicative = PersistentListInstances.applicative;
-export const PersistentListMonad = PersistentListInstances.monad;
 
 /**
  * PersistentList standard typeclass instances
@@ -1131,11 +1254,12 @@ export const PersistentListShow = deriveShowInstance({
 /**
  * PersistentMap derived instances
  */
-export const PersistentMapInstances = deriveInstances({
-  functor: true,
-  bifunctor: true,
+export const PersistentMapFunctor = deriveFunctorInstance<PersistentMapK>({
   customMap: <A, B>(fa: PersistentMap<any, A>, f: (a: A) => B): PersistentMap<any, B> => 
-    fa.map(f),
+    fa.map(f)
+});
+
+export const PersistentMapBifunctor = deriveBifunctorInstance<PersistentMapK>({
   customBimap: <A, B, C, D>(
     fab: PersistentMap<A, B>,
     f: (a: A) => C,
@@ -1148,9 +1272,6 @@ export const PersistentMapInstances = deriveInstances({
     return PersistentMap.fromEntries(entries);
   }
 });
-
-export const PersistentMapFunctor = PersistentMapInstances.functor;
-export const PersistentMapBifunctor = PersistentMapInstances.bifunctor;
 
 /**
  * PersistentMap standard typeclass instances
@@ -1190,13 +1311,15 @@ export const PersistentMapShow = deriveShowInstance({
 /**
  * PersistentSet derived instances
  */
-export const PersistentSetInstances = deriveInstances({
-  functor: true,
-  customMap: <A, B>(fa: PersistentSet<A>, f: (a: A) => B): PersistentSet<B> => 
-    fa.map(f)
+export const PersistentSetFunctor = deriveFunctorInstance<PersistentSetK>({
+  customMap: <A, B>(fa: PersistentSet<A>, f: (a: A) => B): PersistentSet<B> => {
+    const result: B[] = [];
+    for (const value of fa) {
+      result.push(f(value));
+    }
+    return PersistentSet.fromArray(result);
+  }
 });
-
-export const PersistentSetFunctor = PersistentSetInstances.functor;
 
 /**
  * PersistentSet standard typeclass instances
@@ -1519,28 +1642,56 @@ export function unzip<A, B>(list: PersistentList<[A, B]>): [PersistentList<A>, P
  * Uncomment and use these if you prefer HKT-based derivation over the current approach
  */
 
-/*
-export const PersistentListInstancesAlt = deriveInstances<PersistentListK>({
-  map: (fa, f) => fa.map(f),
-  chain: (fa, f) => fa.flatMap ? fa.flatMap(f) : fa.map(f).foldLeft(PersistentList.empty<ReturnType<typeof f>>(), (acc, val) => acc.append(val)),
-  of: PersistentList.of
+// Converted to individual instance functions using the preferred approach
+export const PersistentListFunctorAlt = deriveFunctorInstance<PersistentListK>({
+  customMap: <A, B>(fa: PersistentList<A>, f: (a: A) => B): PersistentList<B> => 
+    fa.map(f)
 });
 
-export const PersistentMapInstancesAlt = deriveInstances<PersistentMapK>({
-  map: (fa, f) => fa.map(f),
-  bimap: (fa, fk, fv) => {
-    const entries = Array.from(fa.entries());
-    const newEntries = entries.map(([k, v]) => [fk(k), fv(v)] as [any, any]);
-    return PersistentMap.fromEntries(newEntries);
-  },
-  of: (value) => PersistentMap.of(value)
+export const PersistentListApplicativeAlt = deriveApplicativeInstance<PersistentListK>({
+  customMap: <A, B>(fa: PersistentList<A>, f: (a: A) => B): PersistentList<B> => 
+    fa.map(f)
 });
 
-export const PersistentSetInstancesAlt = deriveInstances<PersistentSetK>({
-  map: (fa, f) => fa.map(f),
-  of: (value) => PersistentSet.of(value)
+export const PersistentListMonadAlt = deriveMonadInstance<PersistentListK>({
+  customMap: <A, B>(fa: PersistentList<A>, f: (a: A) => B): PersistentList<B> => 
+    fa.map(f),
+  customChain: <A, B>(fa: PersistentList<A>, f: (a: A) => PersistentList<B>): PersistentList<B> => {
+    if (fa.flatMap) {
+      return fa.flatMap(f);
+    }
+    return fa.map(f).foldLeft(PersistentList.empty<B>(), (acc, val) => acc.append(val));
+  }
 });
-*/
+
+export const PersistentMapFunctorAlt = deriveFunctorInstance<PersistentMapK>({
+  customMap: <A, B>(fa: PersistentMap<any, A>, f: (a: A) => B): PersistentMap<any, B> => 
+    fa.map(f)
+});
+
+export const PersistentMapBifunctorAlt = deriveBifunctorInstance<PersistentMapK>({
+  customBimap: <A, B, C, D>(
+    fab: PersistentMap<A, B>,
+    f: (a: A) => C,
+    g: (b: B) => D
+  ): PersistentMap<C, D> => {
+    const entries: [C, D][] = [];
+    for (const [key, value] of fab.entries()) {
+      entries.push([f(key), g(value)]);
+    }
+    return PersistentMap.fromEntries(entries);
+  }
+});
+
+export const PersistentSetFunctorAlt = deriveFunctorInstance<PersistentSetK>({
+  customMap: <A, B>(fa: PersistentSet<A>, f: (a: A) => B): PersistentSet<B> => {
+    const result: B[] = [];
+    for (const value of fa) {
+      result.push(f(value));
+    }
+    return PersistentSet.fromArray(result);
+  }
+});
 
 // ============================================================================
 // Part 11: Fluent API Integration
@@ -1564,12 +1715,14 @@ const PersistentListFluentImpl: FluentImpl<any> = {
     });
   },
   flatMap: (self, f) => {
-    if (self.flatMap) {
+    // Check if the object has a native flatMap method (not the fluent API one)
+    if (self.flatMap && self.flatMap !== PersistentListFluentImpl.flatMap) {
       return self.flatMap(f);
     }
+    // Use the new concat method for cleaner fallback
     return self.map(f).foldLeft(PersistentList.empty(), (acc, val) => {
       if (val instanceof PersistentList) {
-        return val.foldLeft(acc, (acc2, v) => acc2.append(v));
+        return acc.concat(val);
       }
       return acc.append(val);
     });
@@ -1619,7 +1772,8 @@ const PersistentMapFluentImpl: FluentImpl<any> = {
     return PersistentMap.fromEntries(results);
   },
   flatMap: (self, f) => {
-    if (self.flatMap) {
+    // Check if the object has a native flatMap method (not the fluent API one)
+    if (self.flatMap && self.flatMap !== PersistentMapFluentImpl.flatMap) {
       return self.flatMap(f);
     }
     const entries = Array.from(self.entries());
@@ -1684,7 +1838,8 @@ const PersistentSetFluentImpl: FluentImpl<any> = {
     return PersistentSet.fromArray(results);
   },
   flatMap: (self, f) => {
-    if (self.flatMap) {
+    // Check if the object has a native flatMap method (not the fluent API one)
+    if (self.flatMap && self.flatMap !== PersistentSetFluentImpl.flatMap) {
       return self.flatMap(f);
     }
     const results: any[] = [];
@@ -1737,10 +1892,19 @@ applyFluentOps(PersistentSet.prototype, PersistentSetFluentImpl);
 
 /**
  * Register persistent collection typeclass instances
+ * 
+ * Guards against duplicate registration during hot-reload scenarios
+ * to prevent memory churn and unnecessary registry operations.
  */
 export function registerPersistentInstances(): void {
   if (typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
     const registry = (globalThis as any).__FP_REGISTRY;
+    
+    // Check if already registered to prevent duplicate registration during hot-reload
+    const registrationKey = '__PERSISTENT_INSTANCES_REGISTERED';
+    if ((globalThis as any)[registrationKey]) {
+      return; // Already registered, skip
+    }
     
     // Register PersistentList instances
     registry.register('PersistentListFunctor', PersistentListFunctor);
@@ -1762,6 +1926,9 @@ export function registerPersistentInstances(): void {
     registry.register('PersistentSetEq', PersistentSetEq);
     registry.register('PersistentSetOrd', PersistentSetOrd);
     registry.register('PersistentSetShow', PersistentSetShow);
+    
+    // Mark as registered to prevent future duplicate registrations
+    (globalThis as any)[registrationKey] = true;
   }
 }
 

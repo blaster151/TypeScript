@@ -4,11 +4,72 @@
 
 The Derivable Instances System provides automatic generation of typeclass instances for ADTs without manual boilerplate. This system replaces all manually-written Functor, Applicative, Monad, Bifunctor, and standard typeclass instances with automatically derived ones.
 
+## Preferred Approach: Individual Instance Functions
+
+The recommended approach is to use individual derivation functions for each typeclass:
+
+```typescript
+// Preferred: Individual instance derivation
+export const MaybeEq = deriveEqInstance({
+  customEq: <A>(a: Maybe<A>, b: Maybe<A>): boolean => {
+    return matchMaybe(a, {
+      Just: aValue => matchMaybe(b, {
+        Just: bValue => aValue === bValue,
+        Nothing: () => false
+      }),
+      Nothing: () => matchMaybe(b, {
+        Just: () => false,
+        Nothing: () => true
+      })
+    });
+  }
+});
+
+export const MaybeFunctor = deriveFunctorInstance({
+  customMap: <A, B>(fa: Maybe<A>, f: (a: A) => B): Maybe<B> => 
+    matchMaybe(fa, {
+      Just: value => Just(f(value)),
+      Nothing: () => Nothing()
+    })
+});
+
+export const MaybeMonad = deriveMonadInstance({
+  customMap: <A, B>(fa: Maybe<A>, f: (a: A) => B): Maybe<B> => 
+    matchMaybe(fa, {
+      Just: value => Just(f(value)),
+      Nothing: () => Nothing()
+    }),
+  customChain: <A, B>(fa: Maybe<A>, f: (a: A) => Maybe<B>): Maybe<B> => 
+    matchMaybe(fa, {
+      Just: value => f(value),
+      Nothing: () => Nothing()
+    })
+});
+```
+
+## Deprecated Approach: Generic Multi-Instance Function
+
+The generic `deriveInstances` function is deprecated and will be removed in a future version:
+
+```typescript
+// DEPRECATED: Generic multi-instance derivation
+export const MaybeInstances = deriveInstances<MaybeK>({
+  functor: true,
+  applicative: true,
+  monad: true,
+  customMap: <A, B>(fa: Maybe<A>, f: (a: A) => B): Maybe<B> => 
+    matchMaybe(fa, {
+      Just: value => Just(f(value)),
+      Nothing: () => Nothing()
+    })
+});
+```
+
 ## Features
 
 ### 1. Automatic Instance Derivation
 
-All typeclass instances are now automatically derived:
+All typeclass instances are now automatically derived using individual functions:
 
 ```typescript
 // Before: Manual instance definition
@@ -17,11 +78,8 @@ export const MaybeFunctor: Functor<MaybeK> = {
     fa === null || fa === undefined ? (fa as Maybe<B>) : f(fa)
 };
 
-// After: Automatic derivation
-export const MaybeInstances = deriveInstances({
-  functor: true,
-  applicative: true,
-  monad: true,
+// After: Automatic derivation (preferred approach)
+export const MaybeFunctor = deriveFunctorInstance({
   customMap: <A, B>(fa: Maybe<A>, f: (a: A) => B): Maybe<B> => 
     matchMaybe(fa, {
       Just: value => Just(f(value)),
@@ -87,17 +145,17 @@ All derived instances are automatically registered:
 
 ```typescript
 // Auto-registration in registry
-registry.registerTypeclass('Maybe', 'Functor', MaybeInstances.functor);
-registry.registerTypeclass('Maybe', 'Applicative', MaybeInstances.applicative);
-registry.registerTypeclass('Maybe', 'Monad', MaybeInstances.monad);
+registry.registerTypeclass('Maybe', 'Functor', MaybeFunctor);
+registry.registerTypeclass('Maybe', 'Applicative', MaybeApplicative);
+registry.registerTypeclass('Maybe', 'Monad', MaybeMonad);
 registry.registerTypeclass('Maybe', 'Eq', MaybeEq);
 registry.registerTypeclass('Maybe', 'Ord', MaybeOrd);
 registry.registerTypeclass('Maybe', 'Show', MaybeShow);
 
 registry.registerDerivable('Maybe', {
-  functor: MaybeInstances.functor,
-  applicative: MaybeInstances.applicative,
-  monad: MaybeInstances.monad,
+  functor: MaybeFunctor,
+  applicative: MaybeApplicative,
+  monad: MaybeMonad,
   eq: MaybeEq,
   ord: MaybeOrd,
   show: MaybeShow,
@@ -111,7 +169,6 @@ registry.registerDerivable('Maybe', {
 
 Provides the core derivation functions:
 
-- `deriveInstances<F>(config)` - Derive multiple typeclass instances
 - `deriveFunctorInstance<F>(config)` - Derive Functor instance
 - `deriveApplicativeInstance<F>(config)` - Derive Applicative instance
 - `deriveMonadInstance<F>(config)` - Derive Monad instance
@@ -119,6 +176,7 @@ Provides the core derivation functions:
 - `deriveEqInstance<A>(config)` - Derive Eq instance
 - `deriveOrdInstance<A>(config)` - Derive Ord instance
 - `deriveShowInstance<A>(config)` - Derive Show instance
+- `deriveInstances<F>(config)` - **DEPRECATED** Derive multiple typeclass instances
 
 ### Derivation Configuration
 
@@ -131,6 +189,7 @@ interface DerivationConfig {
   eq?: boolean;
   ord?: boolean;
   show?: boolean;
+  usage?: any; // Optional: usage bound for the type
   customMap?: <A, B>(fa: any, f: (a: A) => B) => any;
   customChain?: <A, B>(fa: any, f: (a: A) => any) => any;
   customBimap?: <A, B, C, D>(fab: any, f: (a: A) => C, g: (b: B) => D) => any;
@@ -172,13 +231,35 @@ export const MaybeMonad: Monad<MaybeK> = {
 };
 ```
 
-**After:**
+**After (Preferred Approach):**
 ```typescript
-// Derived instances
-export const MaybeInstances = deriveInstances({
-  functor: true,
-  applicative: true,
-  monad: true,
+// Derived instances using individual functions
+export const MaybeFunctor = deriveFunctorInstance({
+  customMap: <A, B>(fa: Maybe<A>, f: (a: A) => B): Maybe<B> => 
+    matchMaybe(fa, {
+      Just: value => Just(f(value)),
+      Nothing: () => Nothing()
+    })
+});
+
+export const MaybeApplicative = deriveApplicativeInstance({
+  customMap: <A, B>(fa: Maybe<A>, f: (a: A) => B): Maybe<B> => 
+    matchMaybe(fa, {
+      Just: value => Just(f(value)),
+      Nothing: () => Nothing()
+    }),
+  customOf: <A>(a: A): Maybe<A> => Just(a),
+  customAp: <A, B>(fab: Maybe<(a: A) => B>, fa: Maybe<A>): Maybe<B> => 
+    matchMaybe(fab, {
+      Just: f => matchMaybe(fa, {
+        Just: a => Just(f(a)),
+        Nothing: () => Nothing()
+      }),
+      Nothing: () => Nothing()
+    })
+});
+
+export const MaybeMonad = deriveMonadInstance({
   customMap: <A, B>(fa: Maybe<A>, f: (a: A) => B): Maybe<B> => 
     matchMaybe(fa, {
       Just: value => Just(f(value)),
@@ -190,74 +271,23 @@ export const MaybeInstances = deriveInstances({
       Nothing: () => Nothing()
     })
 });
-
-export const MaybeFunctor = MaybeInstances.functor;
-export const MaybeApplicative = MaybeInstances.applicative;
-export const MaybeMonad = MaybeInstances.monad;
 ```
 
-#### Step 2: Add Standard Typeclass Instances
+#### Step 2: Register Instances
 
 ```typescript
-// Add Eq, Ord, Show instances
-export const MaybeEq = deriveEqInstance({
-  customEq: <A>(a: Maybe<A>, b: Maybe<A>): boolean => {
-    return matchMaybe(a, {
-      Just: aValue => matchMaybe(b, {
-        Just: bValue => aValue === bValue,
-        Nothing: () => false
-      }),
-      Nothing: () => matchMaybe(b, {
-        Just: () => false,
-        Nothing: () => true
-      })
-    });
-  }
-});
-
-export const MaybeOrd = deriveOrdInstance({
-  customOrd: <A>(a: Maybe<A>, b: Maybe<A>): number => {
-    return matchMaybe(a, {
-      Just: aValue => matchMaybe(b, {
-        Just: bValue => {
-          if (aValue < bValue) return -1;
-          if (aValue > bValue) return 1;
-          return 0;
-        },
-        Nothing: () => 1 // Just > Nothing
-      }),
-      Nothing: () => matchMaybe(b, {
-        Just: () => -1, // Nothing < Just
-        Nothing: () => 0
-      })
-    });
-  }
-});
-
-export const MaybeShow = deriveShowInstance({
-  customShow: <A>(a: Maybe<A>): string => 
-    matchMaybe(a, {
-      Just: value => `Just(${JSON.stringify(value)})`,
-      Nothing: () => 'Nothing'
-    })
-});
-```
-
-#### Step 3: Update Registry Registration
-
-```typescript
-// Register all instances
-registry.registerTypeclass('Maybe', 'Functor', MaybeInstances.functor);
-registry.registerTypeclass('Maybe', 'Applicative', MaybeInstances.applicative);
-registry.registerTypeclass('Maybe', 'Monad', MaybeInstances.monad);
+// Register individual instances
+registry.registerTypeclass('Maybe', 'Functor', MaybeFunctor);
+registry.registerTypeclass('Maybe', 'Applicative', MaybeApplicative);
+registry.registerTypeclass('Maybe', 'Monad', MaybeMonad);
 registry.registerTypeclass('Maybe', 'Eq', MaybeEq);
 registry.registerTypeclass('Maybe', 'Ord', MaybeOrd);
 registry.registerTypeclass('Maybe', 'Show', MaybeShow);
 
 registry.registerDerivable('Maybe', {
-  functor: MaybeInstances.functor,
-  applicative: MaybeInstances.applicative,
-  monad: MaybeInstances.monad,
+  functor: MaybeFunctor,
+  applicative: MaybeApplicative,
+  monad: MaybeMonad,
   eq: MaybeEq,
   ord: MaybeOrd,
   show: MaybeShow,
@@ -294,8 +324,7 @@ registry.registerDerivable('Maybe', {
 ### Custom Mapping Logic
 
 ```typescript
-const customInstances = deriveInstances({
-  functor: true,
+const customFunctor = deriveFunctorInstance({
   customMap: <A, B>(fa: CustomADT<A>, f: (a: A) => B): CustomADT<B> => {
     // Custom mapping logic for your ADT
     return fa.match({
