@@ -74,3 +74,4 @@ export function checkYonedaIso<F extends Kind1, A>(
 }
 
 
+
