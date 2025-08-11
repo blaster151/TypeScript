@@ -74,15 +74,15 @@ export type Custom<T extends string> = EffectKind<`Custom<${T}>`>;
  * Defaults to 'Pure' if not explicitly declared
  */
 export type EffectOf<F> = 
-  F extends { type: any }
-    ? F extends { type: { __effect?: infer E } }
-      ? E extends EffectTag
-        ? E
-        : 'Pure'
+  F extends { __effect?: infer E }
+    ? E extends EffectTag
+      ? E
       : 'Pure'
-    : F extends { __effect?: infer E }
-      ? E extends EffectTag
-        ? E
+    : F extends { type: any }
+      ? F extends { type: { __effect?: infer E } }
+        ? E extends EffectTag
+          ? E
+          : 'Pure'
         : 'Pure'
       : 'Pure';
 
@@ -313,24 +313,31 @@ export interface FunctionWithEffect extends FunctionK {
 /**
  * IO effect - IO
  */
-export interface IOWithEffect {
+export interface IOWithEffect extends Kind1 {
   readonly __effect: 'IO';
+  readonly arg0: Type;
+  readonly type: Type;
   readonly run: () => any;
 }
 
 /**
  * State effect - State
  */
-export interface StateWithEffect<S, A> {
+export interface StateWithEffect<S, A> extends Kind2 {
   readonly __effect: 'State';
+  readonly arg0: Type;
+  readonly arg1: Type;
+  readonly type: Type;
   readonly run: (s: S) => [A, S];
 }
 
 /**
  * Async effect - Async
  */
-export interface AsyncWithEffect<A> {
+export interface AsyncWithEffect<A> extends Kind1 {
   readonly __effect: 'Async';
+  readonly arg0: Type;
+  readonly type: Type;
   readonly run: () => Promise<A>;
 }
 

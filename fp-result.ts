@@ -146,14 +146,14 @@ export class Err<E, A> {
 /**
  * Create an Ok value
  */
-export function Ok<E, A>(value: A): Ok<E, A> {
+export function ok<E, A>(value: A): Ok<E, A> {
   return new Ok(value);
 }
 
 /**
  * Create an Err value
  */
-export function Err<E, A>(error: E): Err<E, A> {
+export function err<E, A>(error: E): Err<E, A> {
   return new Err(error);
 }
 
@@ -161,14 +161,14 @@ export function Err<E, A>(error: E): Err<E, A> {
  * Create a Result from a nullable value
  */
 export function fromNullable<E, A>(error: E, value: A | null | undefined): Result<E, A> {
-  return value == null ? Err(error) : Ok(value);
+  return value == null ? err(error) : ok(value);
 }
 
 /**
  * Create a Result from a predicate
  */
 export function fromPredicate<E, A>(predicate: (value: A) => boolean, error: E, value: A): Result<E, A> {
-  return predicate(value) ? Ok(value) : Err(error);
+  return predicate(value) ? ok(value) : err(error);
 }
 
 /**
@@ -176,9 +176,9 @@ export function fromPredicate<E, A>(predicate: (value: A) => boolean, error: E, 
  */
 export function tryCatch<E, A>(f: () => A, onError: (error: any) => E): Result<E, A> {
   try {
-    return Ok(f());
+    return ok(f());
   } catch (error) {
-    return Err(onError(error));
+    return err(onError(error));
   }
 }
 
@@ -188,9 +188,9 @@ export function tryCatch<E, A>(f: () => A, onError: (error: any) => E): Result<E
 export async function fromPromise<E, A>(promise: Promise<A>, onError: (error: any) => E): Promise<Result<E, A>> {
   try {
     const value = await promise;
-    return Ok(value);
+    return ok(value);
   } catch (error) {
-    return Err(onError(error));
+    return err(onError(error));
   }
 }
 
@@ -203,8 +203,8 @@ export async function fromPromise<E, A>(promise: Promise<A>, onError: (error: an
  */
 export function map<E, A, B>(f: (a: A) => B, result: Result<E, A>): Result<E, B> {
   return result.match({
-    Ok: ({ value }) => Ok(f(value)),
-    Err: ({ error }) => Err(error)
+    Ok: ({ value }) => ok(f(value)),
+    Err: ({ error }) => err(error)
   });
 }
 
@@ -213,8 +213,8 @@ export function map<E, A, B>(f: (a: A) => B, result: Result<E, A>): Result<E, B>
  */
 export function mapError<E, A, E2>(f: (e: E) => E2, result: Result<E, A>): Result<E2, A> {
   return result.match({
-    Ok: ({ value }) => Ok(value),
-    Err: ({ error }) => Err(f(error))
+    Ok: ({ value }) => ok(value),
+    Err: ({ error }) => err(f(error))
   });
 }
 
@@ -223,8 +223,8 @@ export function mapError<E, A, E2>(f: (e: E) => E2, result: Result<E, A>): Resul
  */
 export function bimap<E, A, E2, B>(error: (e: E) => E2, success: (a: A) => B, result: Result<E, A>): Result<E2, B> {
   return result.match({
-    Ok: ({ value }) => Ok(success(value)),
-    Err: ({ error: err }) => Err(error(err))
+    Ok: ({ value }) => ok(success(value)),
+    Err: ({ error: err }) => err(error(err))
   });
 }
 
@@ -234,7 +234,7 @@ export function bimap<E, A, E2, B>(error: (e: E) => E2, success: (a: A) => B, re
 export function chain<E, A, B>(f: (a: A) => Result<E, B>, result: Result<E, A>): Result<E, B> {
   return result.match({
     Ok: ({ value }) => f(value),
-    Err: ({ error }) => Err(error)
+    Err: ({ error }) => err(error)
   });
 }
 
@@ -243,7 +243,7 @@ export function chain<E, A, B>(f: (a: A) => Result<E, B>, result: Result<E, A>):
  */
 export function chainError<E, A, E2>(f: (e: E) => Result<E2, A>, result: Result<E, A>): Result<E2, A> {
   return result.match({
-    Ok: ({ value }) => Ok(value),
+    Ok: ({ value }) => ok(value),
     Err: ({ error }) => f(error)
   });
 }
@@ -263,7 +263,7 @@ export function bichain<E, A, E2, B>(error: (e: E) => Result<E2, B>, success: (a
  */
 export function filter<E, A>(predicate: (a: A) => boolean, error: E, result: Result<E, A>): Result<E, A> {
   return result.match({
-    Ok: ({ value }) => predicate(value) ? result : Err(error),
+    Ok: ({ value }) => predicate(value) ? result : err(error),
     Err: ({ error: err }) => result
   });
 }
@@ -273,8 +273,8 @@ export function filter<E, A>(predicate: (a: A) => boolean, error: E, result: Res
  */
 export function swap<E, A>(result: Result<E, A>): Result<A, E> {
   return result.match({
-    Ok: ({ value }) => Err(value),
-    Err: ({ error }) => Ok(error)
+    Ok: ({ value }) => err(value),
+    Err: ({ error }) => ok(error)
   });
 }
 
@@ -304,7 +304,7 @@ export function orElse<E, A>(alternative: Result<E, A>, result: Result<E, A>): R
 export function recover<E, A>(f: (e: E) => A, result: Result<E, A>): Result<E, A> {
   return result.match({
     Ok: () => result,
-    Err: ({ error }) => Ok(f(error))
+    Err: ({ error }) => ok(f(error))
   });
 }
 
@@ -324,11 +324,11 @@ export const ResultFunctorInstance = {
  */
 export const ResultApplicativeInstance = {
   ...ResultFunctorInstance,
-  of: <E, A>(a: A): Result<E, A> => Ok(a),
+  of: <E, A>(a: A): Result<E, A> => ok(a),
   ap: <E, A, B>(fab: Result<E, (a: A) => B>, fa: Result<E, A>): Result<E, B> => {
     return fab.match({
       Ok: ({ value: f }) => map(f, fa),
-      Err: ({ error }) => Err(error)
+      Err: ({ error }) => err(error)
     });
   }
 };
@@ -357,28 +357,28 @@ export const ResultBifunctorInstance = {
  */
 const ResultFluentImpl: FluentImpl<any> = {
   map: (self, f) => self.match({
-    Ok: ({ value }) => Ok(f(value)),
-    Err: ({ error }) => Err(error)
+    Ok: ({ value }) => ok(f(value)),
+    Err: ({ error }) => err(error)
   }),
   chain: (self, f) => self.match({
     Ok: ({ value }) => f(value),
-    Err: ({ error }) => Err(error)
+    Err: ({ error }) => err(error)
   }),
   flatMap: (self, f) => self.match({
     Ok: ({ value }) => f(value),
-    Err: ({ error }) => Err(error)
+    Err: ({ error }) => err(error)
   }),
   filter: (self, pred) => self.match({
-    Ok: ({ value }) => pred(value) ? self : Err(new Error('Filter predicate failed')),
+    Ok: ({ value }) => pred(value) ? self : err(new Error('Filter predicate failed')),
     Err: ({ error }) => self
   }),
   filterMap: (self, f) => self.match({
     Ok: ({ value }) => f(value),
-    Err: ({ error }) => Err(error)
+    Err: ({ error }) => err(error)
   }),
   bimap: (self, left, right) => self.match({
-    Ok: ({ value }) => Ok(right(value)),
-    Err: ({ error }) => Err(left(error))
+    Ok: ({ value }) => ok(right(value)),
+    Err: ({ error }) => err(left(error))
   }),
   bichain: (self, left, right) => self.match({
     Ok: ({ value }) => right(value),

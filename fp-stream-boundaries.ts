@@ -228,11 +228,11 @@ export function composeWithBoundaries<A, B, C, S, UB extends Multiplicity>(
   
   switch (boundary) {
     case 'FullyFusable':
-      return createFusableStream(usageBound, effectTag, composedRun);
+      return createFusableStream(usageBound, effectTag, composedRun) as BoundedStream<A, C, S, UB, any>;
     case 'Staged':
-      return createStagedStream(usageBound, effectTag, composedRun);
+      return createStagedStream(usageBound, effectTag, composedRun) as BoundedStream<A, C, S, UB, any>;
     case 'OpaqueEffect':
-      return createOpaqueStream(usageBound, effectTag, composedRun);
+      return createOpaqueStream(usageBound, effectTag, composedRun) as BoundedStream<A, C, S, UB, any>;
   }
 }
 

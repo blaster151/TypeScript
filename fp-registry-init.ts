@@ -265,23 +265,26 @@ export function initializeFPRegistry(): FPRegistry {
 
   // Import persistent collection instances
   import('./fp-persistent').then(({
-    PersistentListInstances, PersistentListEq, PersistentListOrd, PersistentListShow,
-    PersistentMapInstances, PersistentMapEq, PersistentMapOrd, PersistentMapShow,
-    PersistentSetInstances, PersistentSetEq, PersistentSetOrd, PersistentSetShow
+    PersistentListFunctor, PersistentListApplicative, PersistentListMonad,
+    PersistentListEq, PersistentListOrd, PersistentListShow,
+    PersistentMapFunctor, PersistentMapBifunctor,
+    PersistentMapEq, PersistentMapOrd, PersistentMapShow,
+    PersistentSetFunctor,
+    PersistentSetEq, PersistentSetOrd, PersistentSetShow
   }) => {
     // Register PersistentList
     registry.registerHKT('PersistentList', 'PersistentListK');
     registry.registerPurity('PersistentList', 'Pure');
-    registry.registerTypeclass('PersistentList', 'Functor', PersistentListInstances.functor);
-    registry.registerTypeclass('PersistentList', 'Applicative', PersistentListInstances.applicative);
-    registry.registerTypeclass('PersistentList', 'Monad', PersistentListInstances.monad);
+    registry.registerTypeclass('PersistentList', 'Functor', PersistentListFunctor);
+    registry.registerTypeclass('PersistentList', 'Applicative', PersistentListApplicative);
+    registry.registerTypeclass('PersistentList', 'Monad', PersistentListMonad);
     registry.registerTypeclass('PersistentList', 'Eq', PersistentListEq);
     registry.registerTypeclass('PersistentList', 'Ord', PersistentListOrd);
     registry.registerTypeclass('PersistentList', 'Show', PersistentListShow);
     registry.registerDerivable('PersistentList', {
-      functor: PersistentListInstances.functor,
-      applicative: PersistentListInstances.applicative,
-      monad: PersistentListInstances.monad,
+      functor: PersistentListFunctor,
+      applicative: PersistentListApplicative,
+      monad: PersistentListMonad,
       eq: PersistentListEq,
       ord: PersistentListOrd,
       show: PersistentListShow,
@@ -291,14 +294,14 @@ export function initializeFPRegistry(): FPRegistry {
     // Register PersistentMap
     registry.registerHKT('PersistentMap', 'PersistentMapK');
     registry.registerPurity('PersistentMap', 'Pure');
-    registry.registerTypeclass('PersistentMap', 'Functor', PersistentMapInstances.functor);
-    registry.registerTypeclass('PersistentMap', 'Bifunctor', PersistentMapInstances.bifunctor);
+    registry.registerTypeclass('PersistentMap', 'Functor', PersistentMapFunctor);
+    registry.registerTypeclass('PersistentMap', 'Bifunctor', PersistentMapBifunctor);
     registry.registerTypeclass('PersistentMap', 'Eq', PersistentMapEq);
     registry.registerTypeclass('PersistentMap', 'Ord', PersistentMapOrd);
     registry.registerTypeclass('PersistentMap', 'Show', PersistentMapShow);
     registry.registerDerivable('PersistentMap', {
-      functor: PersistentMapInstances.functor,
-      bifunctor: PersistentMapInstances.bifunctor,
+      functor: PersistentMapFunctor,
+      bifunctor: PersistentMapBifunctor,
       eq: PersistentMapEq,
       ord: PersistentMapOrd,
       show: PersistentMapShow,
@@ -308,12 +311,12 @@ export function initializeFPRegistry(): FPRegistry {
     // Register PersistentSet
     registry.registerHKT('PersistentSet', 'PersistentSetK');
     registry.registerPurity('PersistentSet', 'Pure');
-    registry.registerTypeclass('PersistentSet', 'Functor', PersistentSetInstances.functor);
+    registry.registerTypeclass('PersistentSet', 'Functor', PersistentSetFunctor);
     registry.registerTypeclass('PersistentSet', 'Eq', PersistentSetEq);
     registry.registerTypeclass('PersistentSet', 'Ord', PersistentSetOrd);
     registry.registerTypeclass('PersistentSet', 'Show', PersistentSetShow);
     registry.registerDerivable('PersistentSet', {
-      functor: PersistentSetInstances.functor,
+      functor: PersistentSetFunctor,
       eq: PersistentSetEq,
       ord: PersistentSetOrd,
       show: PersistentSetShow,

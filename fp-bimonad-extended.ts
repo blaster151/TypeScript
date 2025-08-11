@@ -545,7 +545,7 @@ export function matchMTaskEither<L, R, A>(
 /**
  * Convert a synchronous Either to a TaskEither
  */
-export function eitherToTaskEither<L, R>(either: Either<L, R>): TaskEither<L, R> => {
+export function eitherToTaskEither<L, R>(either: Either<L, R>): TaskEither<L, R> {
   return async () => either;
 }
 

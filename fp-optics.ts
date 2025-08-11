@@ -210,7 +210,7 @@ export function lens<S, T, A, B>(
       const a = getter(s);
       const b = (pab as any)(a);
       return setter(s, b);
-    } as any;
+    };
   };
 }
 
@@ -250,8 +250,8 @@ export function set<S, T, A, B>(ln: Lens<S, T, A, B>, b: B, s: S): T {
  * @returns The modified structure
  */
 export function over<S, T, A, B>(ln: Lens<S, T, A, B>, f: (a: A) => B, s: S): T {
-  const constOptic = ln(f as any);
-  return (constOptic as any)(s);
+  const constOptic = ln(f as Function);
+  return (constOptic as Function)(s);
 }
 
 // ============================================================================
@@ -274,12 +274,12 @@ export function prism<S, T, A, B>(
       const matchResult = match(s);
       if ('left' in matchResult) {
         const a = matchResult.left;
-        const b = (pab as any)(a);
+        const b = (pab as Function)(a);
         return build(b);
       } else {
         return matchResult.right;
       }
-    } as any;
+    };
   };
 }
 
@@ -291,8 +291,8 @@ export function prism<S, T, A, B>(
  */
 export function preview<S, A>(pr: Prism<S, S, A, A>, s: S): Maybe<A> {
   // Simplified implementation
-  const matchOptic = pr((a: A) => Just(a) as any);
-  const result = (matchOptic as any)(s);
+  const matchOptic = pr((a: A) => Just(a) as Maybe<A>);
+  const result = (matchOptic as Function)(s);
   return result;
 }
 
@@ -303,8 +303,8 @@ export function preview<S, A>(pr: Prism<S, S, A, A>, s: S): Maybe<A> {
  * @returns The complete structure
  */
 export function review<S, T, A, B>(pr: Prism<S, T, A, B>, b: B): T {
-  const buildOptic = pr((a: A) => b as any);
-  return (buildOptic as any)(undefined as any);
+  const buildOptic = pr((a: A) => b as B);
+  return (buildOptic as Function)(undefined as S);
 }
 
 /**
@@ -343,7 +343,7 @@ export function optional<S, T, A, B>(
         return set(s, b);
       }
       return s as any;
-    } as any;
+    };
   };
 }
 
@@ -430,7 +430,7 @@ export function traversal<S, T, A, B>(
     // Simplified implementation
     return (s: S) => {
       return traverse((a: A) => (pab as any)(a), s);
-    } as any;
+    };
   };
 }
 
@@ -444,15 +444,15 @@ export function takeTraversal<S, T, A, B>(
   return traversal<S, T, A, B>((f, s) => {
     // Simplified implementation that works with current traversal structure
     const elements: A[] = [];
-    const result = t((a: A) => {
+    t((a: A) => {
       elements.push(a);
       return a;
-    } as any)(s);
+    })(s);
     
     // Apply function only to first count elements
     return t((a: A, index: number) => {
       return index < count ? f(a) : a;
-    } as any)(s);
+    })(s);
   });
 }
 
@@ -469,12 +469,12 @@ export function dropTraversal<S, T, A, B>(
     t((a: A) => {
       elements.push(a);
       return a;
-    } as any)(s);
+    })(s);
     
     // Apply function only to elements after count
     return t((a: A, index: number) => {
       return index >= count ? f(a) : a;
-    } as any)(s);
+    })(s);
   });
 }
 
@@ -492,13 +492,13 @@ export function sliceTraversal<S, T, A, B>(
     t((a: A) => {
       elements.push(a);
       return a;
-    } as any)(s);
+    })(s);
     
     // Apply function only to elements in range
     return t((a: A, index: number) => {
       const inRange = index >= start && (end === undefined || index < end);
       return inRange ? f(a) : a;
-    } as any)(s);
+    })(s);
   });
 }
 
@@ -514,7 +514,7 @@ export function reverseTraversal<S, T, A, B>(
     t((a: A) => {
       elements.push(a);
       return a;
-    } as any)(s);
+    })(s);
     
     // Apply function in reverse order
     let reverseIndex = elements.length - 1;
@@ -522,7 +522,7 @@ export function reverseTraversal<S, T, A, B>(
       const result = reverseIndex >= 0 ? f(elements[reverseIndex]) : a;
       reverseIndex--;
       return result;
-    } as any)(s);
+    })(s);
   });
 }
 
@@ -534,7 +534,7 @@ export function filterTraversal<S, T, A, B>(
   predicate: (a: A) => boolean
 ): Traversal<S, T, A, B> {
   return traversal<S, T, A, B>((f, s) => {
-    return t((a: A) => predicate(a) ? f(a) : a as any)(s);
+    return t((a: A) => predicate(a) ? f(a) : a)(s);
   });
 }
 
@@ -551,7 +551,7 @@ export function sortByTraversal<S, T, A, B>(
     t((a: A) => {
       elements.push({ value: a, sortKey: fn(a) });
       return a;
-    } as any)(s);
+    })(s);
     
     // Sort by sort key
     elements.sort((a, b) => {
@@ -566,7 +566,7 @@ export function sortByTraversal<S, T, A, B>(
       const result = index < elements.length ? f(elements[index].value) : a;
       index++;
       return result;
-    } as any)(s);
+    })(s);
   });
 }
 
@@ -587,7 +587,7 @@ export function distinctTraversal<S, T, A, B>(
         uniqueElements.push(a);
       }
       return a;
-    } as any)(s);
+    })(s);
     
     // Apply function to unique elements
     let index = 0;
@@ -595,7 +595,7 @@ export function distinctTraversal<S, T, A, B>(
       const result = index < uniqueElements.length ? f(uniqueElements[index]) : a;
       index++;
       return result;
-    } as any)(s);
+    })(s);
   });
 }
 
@@ -1144,7 +1144,7 @@ export function to<S, A>(getter: (s: S) => A): Getter<S, A> {
 export function sets<S, T, A, B>(setter: (f: (a: A) => B, s: S) => T): Setter<S, T, A, B> {
   return (pab: Apply<Profunctor<any>, [A, B]>) => {
     return (s: S) => setter((a: A) => (pab as any)(a), s);
-  } as any;
+  };
 }
 
 // ============================================================================

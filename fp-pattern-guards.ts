@@ -53,7 +53,7 @@ export function configureGuardWarnings(config: GuardDevConfig): void {
  * Check if a handler has non-exhaustive guards and log a warning if enabled
  */
 function checkNonExhaustiveGuards<T>(
-  tag: string,
+  tag: string | number | symbol,
   handler: T,
   context: string
 ): void {
@@ -68,7 +68,7 @@ function checkNonExhaustiveGuards<T>(
     (handler as any).guards.length === 0 &&
     !('fallback' in handler)
   ) {
-    const warning = `⚠️  Guard Warning: Handler for tag "${tag}" has empty guards array with no fallback. This will always throw an error at runtime. Consider adding a fallback or removing the empty guards. Context: ${context}`;
+    const warning = `⚠️  Guard Warning: Handler for tag "${String(tag)}" has empty guards array with no fallback. This will always throw an error at runtime. Consider adding a fallback or removing the empty guards. Context: ${context}`;
     guardConfig.warnFunction(warning);
   }
 }
@@ -113,13 +113,6 @@ export interface PatternGuard<Payload, Result> {
  * Extended match handlers with pattern guards
  */
 export interface GuardedMatchHandlers<Spec extends Record<string, any>, Result> {
-  [K in keyof Spec]?: 
-    | ((payload: Spec[K]) => Result) // Regular handler
-    | GuardedHandler<Spec[K], Result>[] // Guarded handlers
-    | {
-        guards?: GuardedHandler<Spec[K], Result>[];
-        fallback?: (payload: Spec[K]) => Result;
-      };
   _?: (tag: string, payload: any) => Result;
   otherwise?: (tag: string, payload: any) => Result;
 }
@@ -127,17 +120,43 @@ export interface GuardedMatchHandlers<Spec extends Record<string, any>, Result> 
 /**
  * Extended tag-only handlers with pattern guards
  */
-export interface GuardedTagOnlyHandlers<Spec extends Record<string, any>, Result> {
-  [K in keyof Spec]?: 
-    | (() => Result) // Regular handler
-    | GuardedHandler<void, Result>[] // Guarded handlers
-    | {
-        guards?: GuardedHandler<void, Result>[];
-        fallback?: () => Result;
-      };
+export interface GuardedTagOnlyHandlers<Spec, Result> {
   _?: (tag: string) => Result;
   otherwise?: (tag: string) => Result;
 }
+
+// Add the mapped type properties as a separate type intersection
+export type GuardedMatchHandlersWithKeys<Spec extends Record<string, any>, Result> = 
+  GuardedMatchHandlers<Spec, Result> & {
+    [K in keyof Spec]?: GuardedMatchHandler<Spec[K], Result>;
+  };
+
+export type GuardedTagOnlyHandlersWithKeys<Spec, Result> = 
+  GuardedTagOnlyHandlers<Spec, Result> & {
+    [K in keyof Spec]?: GuardedTagOnlyHandler<Result>;
+  };
+
+/**
+ * Individual guarded match handler type
+ */
+export type GuardedMatchHandler<Payload, Result> = 
+  | ((payload: Payload) => Result) // Regular handler
+  | GuardedHandler<Payload, Result>[] // Guarded handlers
+  | {
+      guards?: GuardedHandler<Payload, Result>[];
+      fallback?: (payload: Payload) => Result;
+    };
+
+/**
+ * Individual guarded tag-only handler type
+ */
+export type GuardedTagOnlyHandler<Result> = 
+  | (() => Result) // Regular handler
+  | GuardedHandler<void, Result>[] // Guarded handlers
+  | {
+      guards?: GuardedHandler<void, Result>[];
+      fallback?: () => Result;
+    };
 
 // ============================================================================
 // Part 2: Guard Creation Utilities
@@ -155,8 +174,8 @@ export interface GuardedTagOnlyHandlers<Spec extends Record<string, any>, Result
  * ```
  */
 export const on = <P, A>(proj: (p: P) => A) =>
-  (pred: (a: A) => boolean): GuardCondition<P> =>
-    (p) => pred(proj(p));
+  (pred: (a: A) => boolean) =>
+    (p: P) => pred(proj(p));
 
 /**
  * Create a single guard with condition and handler
@@ -203,199 +222,199 @@ export const GuardSet = {
    * Check if projected value is greater than threshold
    */
   gt: <T extends number>(threshold: T) => 
-    <P>(proj: (p: P) => T): GuardCondition<P> =>
+    <P>(proj: (p: P) => T) =>
       on(proj)(value => value > threshold),
   
   /**
    * Check if projected value is greater than or equal to threshold
    */
   gte: <T extends number>(threshold: T) => 
-    <P>(proj: (p: P) => T): GuardCondition<P> =>
+    <P>(proj: (p: P) => T) =>
       on(proj)(value => value >= threshold),
   
   /**
    * Check if projected value is less than threshold
    */
   lt: <T extends number>(threshold: T) => 
-    <P>(proj: (p: P) => T): GuardCondition<P> =>
+    <P>(proj: (p: P) => T) =>
       on(proj)(value => value < threshold),
   
   /**
    * Check if projected value is less than or equal to threshold
    */
   lte: <T extends number>(threshold: T) => 
-    <P>(proj: (p: P) => T): GuardCondition<P> =>
+    <P>(proj: (p: P) => T) =>
       on(proj)(value => value <= threshold),
   
   /**
    * Check if projected value is between min and max (inclusive)
    */
   between: <T extends number>(min: T, max: T) => 
-    <P>(proj: (p: P) => T): GuardCondition<P> =>
+    <P>(proj: (p: P) => T) =>
       on(proj)(value => value >= min && value <= max),
   
   /**
    * Check if projected value is positive
    */
-  positive: <P>(proj: (p: P) => number): GuardCondition<P> =>
+  positive: <P>(proj: (p: P) => number) =>
     on(proj)(value => value > 0),
   
   /**
    * Check if projected value is negative
    */
-  negative: <P>(proj: (p: P) => number): GuardCondition<P> =>
+  negative: <P>(proj: (p: P) => number) =>
     on(proj)(value => value < 0),
   
   /**
    * Check if projected value is zero
    */
-  zero: <P>(proj: (p: P) => number): GuardCondition<P> =>
+  zero: <P>(proj: (p: P) => number) =>
     on(proj)(value => value === 0),
   
   /**
    * Check if projected string value matches regex
    */
   matches: (regex: RegExp) => 
-    <P>(proj: (p: P) => string): GuardCondition<P> =>
+    <P>(proj: (p: P) => string) =>
       on(proj)(value => regex.test(value)),
   
   /**
    * Check if projected string value starts with prefix
    */
   startsWith: (prefix: string) => 
-    <P>(proj: (p: P) => string): GuardCondition<P> =>
+    <P>(proj: (p: P) => string) =>
       on(proj)(value => value.startsWith(prefix)),
   
   /**
    * Check if projected string value ends with suffix
    */
   endsWith: (suffix: string) => 
-    <P>(proj: (p: P) => string): GuardCondition<P> =>
+    <P>(proj: (p: P) => string) =>
       on(proj)(value => value.endsWith(suffix)),
   
   /**
    * Check if projected string value has length greater than threshold
    */
   longerThan: (threshold: number) => 
-    <P>(proj: (p: P) => string): GuardCondition<P> =>
+    <P>(proj: (p: P) => string) =>
       on(proj)(value => value.length > threshold),
   
   /**
    * Check if projected string value has length less than threshold
    */
   shorterThan: (threshold: number) => 
-    <P>(proj: (p: P) => string): GuardCondition<P> =>
+    <P>(proj: (p: P) => string) =>
       on(proj)(value => value.length < threshold),
   
   /**
    * Check if projected string value has exact length
    */
   exactLength: (length: number) => 
-    <P>(proj: (p: P) => string): GuardCondition<P> =>
+    <P>(proj: (p: P) => string) =>
       on(proj)(value => value.length === length),
   
   /**
    * Check if projected string value is empty
    */
-  strIsEmpty: <P>(proj: (p: P) => string): GuardCondition<P> =>
+  strIsEmpty: <P>(proj: (p: P) => string) =>
     on(proj)(value => value.length === 0),
   
   /**
    * Check if projected string value is not empty
    */
-  strIsNotEmpty: <P>(proj: (p: P) => string): GuardCondition<P> =>
+  strIsNotEmpty: <P>(proj: (p: P) => string) =>
     on(proj)(value => value.length > 0),
   
   /**
    * Check if projected array value is empty
    */
-  arrIsEmpty: <P, T>(proj: (p: P) => T[]): GuardCondition<P> =>
+  arrIsEmpty: <P, T>(proj: (p: P) => T[]) =>
     on(proj)(value => value.length === 0),
   
   /**
    * Check if projected array value is not empty
    */
-  arrIsNotEmpty: <P, T>(proj: (p: P) => T[]): GuardCondition<P> =>
+  arrIsNotEmpty: <P, T>(proj: (p: P) => T[]) =>
     on(proj)(value => value.length > 0),
   
   /**
    * Check if projected array value has length greater than threshold
    */
   longerArrayThan: (threshold: number) => 
-    <P, T>(proj: (p: P) => T[]): GuardCondition<P> =>
+    <P, T>(proj: (p: P) => T[]) =>
       on(proj)(value => value.length > threshold),
   
   /**
    * Check if projected array value has length less than threshold
    */
   shorterArrayThan: (threshold: number) => 
-    <P, T>(proj: (p: P) => T[]): GuardCondition<P> =>
+    <P, T>(proj: (p: P) => T[]) =>
       on(proj)(value => value.length < threshold),
   
   /**
    * Check if projected array value has exact length
    */
   exactArrayLength: (length: number) => 
-    <P, T>(proj: (p: P) => T[]): GuardCondition<P> =>
+    <P, T>(proj: (p: P) => T[]) =>
       on(proj)(value => value.length === length),
   
   /**
    * Check if projected value is null
    */
-  isNull: <P>(proj: (p: P) => any): GuardCondition<P> =>
+  isNull: <P>(proj: (p: P) => any) =>
     on(proj)(value => value === null),
   
   /**
    * Check if projected value is undefined
    */
-  isUndefined: <P>(proj: (p: P) => any): GuardCondition<P> =>
+  isUndefined: <P>(proj: (p: P) => any) =>
     on(proj)(value => value === undefined),
   
   /**
    * Check if projected value is truthy
    */
-  isTruthy: <P>(proj: (p: P) => any): GuardCondition<P> =>
+  isTruthy: <P>(proj: (p: P) => any) =>
     on(proj)(value => Boolean(value)),
   
   /**
    * Check if projected value is falsy
    */
-  isFalsy: <P>(proj: (p: P) => any): GuardCondition<P> =>
+  isFalsy: <P>(proj: (p: P) => any) =>
     on(proj)(value => !Boolean(value)),
   
   /**
    * Check if projected value equals target
    */
   eq: <T>(target: T) => 
-    <P>(proj: (p: P) => T): GuardCondition<P> =>
+    <P>(proj: (p: P) => T) =>
       on(proj)(value => value === target),
   
   /**
    * Check if projected value does not equal target
    */
   ne: <T>(target: T) => 
-    <P>(proj: (p: P) => T): GuardCondition<P> =>
+    <P>(proj: (p: P) => T) =>
       on(proj)(value => value !== target),
   
   /**
    * Check if projected value is instance of constructor
    */
   instanceOf: <T>(constructor: new (...args: any[]) => T) => 
-    <P>(proj: (p: P) => any): GuardCondition<P> =>
+    <P>(proj: (p: P) => any) =>
       on(proj)(value => value instanceof constructor),
   
   /**
    * Check if projected value has property
    */
   hasProperty: <K extends string>(key: K) => 
-    <P>(proj: (p: P) => any): GuardCondition<P> =>
+    <P>(proj: (p: P) => any) =>
       on(proj)(value => key in value),
   
   /**
    * Check if projected value is in array
    */
   in: <T>(array: T[]) => 
-    <P>(proj: (p: P) => T): GuardCondition<P> =>
+    <P>(proj: (p: P) => T) =>
       on(proj)(value => array.includes(value))
 };
 
@@ -408,7 +427,7 @@ export const GuardSet = {
  */
 export function matchWithGuards<Spec extends Record<string, any>, Result>(
   instance: EnhancedADTInstance<Spec>,
-  handlers: GuardedMatchHandlers<Spec, Result>
+  handlers: GuardedMatchHandlersWithKeys<Spec, Result>
 ): Result {
   const tag = instance.getTag() as keyof Spec;
   const payload = instance.getPayload() as PayloadOf<Spec, typeof tag>;
@@ -418,7 +437,7 @@ export function matchWithGuards<Spec extends Record<string, any>, Result>(
     // Try fallback handlers
     const fallback = handlers._ || handlers.otherwise;
     if (fallback) {
-      return fallback(tag as string, payload);
+      return fallback(String(tag), payload);
     }
     throw new Error(`Unhandled tag: ${String(tag)}`);
   }
@@ -429,9 +448,9 @@ export function matchWithGuards<Spec extends Record<string, any>, Result>(
   // Handle different handler types
   if (Array.isArray(handler)) {
     // Guarded handlers array
-    const result = matchGuardedHandlers(handler, payload);
+    const result = matchGuardedHandlers(handler as GuardedHandler<PayloadOf<Spec, typeof tag>, Result>[], payload);
     if (result !== NO_MATCH) {
-      return result;
+      return result as Result;
     }
     // No guard matched, continue to fallback or throw
   } else if (typeof handler === 'function') {
@@ -441,9 +460,9 @@ export function matchWithGuards<Spec extends Record<string, any>, Result>(
     // Guarded handlers with fallback
     const { guards: guardHandlers, fallback } = handler;
     if (guardHandlers) {
-      const result = matchGuardedHandlers(guardHandlers, payload);
+      const result = matchGuardedHandlers(guardHandlers as GuardedHandler<PayloadOf<Spec, typeof tag>, Result>[], payload);
       if (result !== NO_MATCH) { // Check for NO_MATCH sentinel
-        return result;
+        return result as Result;
       }
     }
     if (fallback) {
@@ -474,7 +493,7 @@ function matchGuardedHandlers<Payload, Result>(
  */
 export function matchTagWithGuards<Spec extends Record<string, any>, Result>(
   instance: EnhancedADTInstance<Spec>,
-  handlers: GuardedTagOnlyHandlers<Spec, Result>
+  handlers: GuardedTagOnlyHandlersWithKeys<Spec, Result>
 ): Result {
   const tag = instance.getTag() as keyof Spec;
   const handler = handlers[tag];
@@ -483,7 +502,7 @@ export function matchTagWithGuards<Spec extends Record<string, any>, Result>(
     // Try fallback handlers
     const fallback = handlers._ || handlers.otherwise;
     if (fallback) {
-      return fallback(tag as string);
+      return fallback(String(tag));
     }
     throw new Error(`Unhandled tag: ${String(tag)}`);
   }
@@ -504,7 +523,7 @@ export function matchTagWithGuards<Spec extends Record<string, any>, Result>(
     if (guardHandlers) {
       const result = matchTagGuardedHandlers(guardHandlers);
       if (result !== NO_MATCH) { // Check for NO_MATCH sentinel
-        return result;
+        return result as Result;
       }
     }
     if (fallback) {
@@ -522,8 +541,8 @@ function matchTagGuardedHandlers<Result>(
   guards: GuardedHandler<void, Result>[]
 ): Result | typeof NO_MATCH {
   for (const { condition, handler } of guards) {
-    if (condition({})) {
-      return handler({});
+    if (condition(undefined)) {
+      return handler(undefined);
     }
   }
   return NO_MATCH; // No guard matched
@@ -543,14 +562,14 @@ export interface GuardedADTInstance<Spec extends Record<string, any>>
    * Pattern match with guard support
    */
   matchWithGuards<Result>(
-    handlers: GuardedMatchHandlers<Spec, Result>
+    handlers: GuardedMatchHandlersWithKeys<Spec, Result>
   ): Result;
   
   /**
    * Tag-only pattern match with guard support
    */
   matchTagWithGuards<Result>(
-    handlers: GuardedTagOnlyHandlers<Spec, Result>
+    handlers: GuardedTagOnlyHandlersWithKeys<Spec, Result>
   ): Result;
 }
 
@@ -566,9 +585,9 @@ export function attachGuards<Spec extends Record<string, any>>(
 ): GuardedADTInstance<Spec> {
   return {
     ...instance,
-    matchWithGuards: <Result>(handlers: GuardedMatchHandlers<Spec, Result>) =>
+    matchWithGuards: <Result>(handlers: GuardedMatchHandlersWithKeys<Spec, Result>) =>
       matchWithGuards(instance, handlers),
-    matchTagWithGuards: <Result>(handlers: GuardedTagOnlyHandlers<Spec, Result>) =>
+    matchTagWithGuards: <Result>(handlers: GuardedTagOnlyHandlersWithKeys<Spec, Result>) =>
       matchTagWithGuards(instance, handlers)
   };
 }
@@ -581,7 +600,7 @@ export function attachGuards<Spec extends Record<string, any>>(
  * Data-last pattern matching with guards
  */
 export function matchWithGuardsDataLast<Spec extends Record<string, any>, Result>(
-  handlers: GuardedMatchHandlers<Spec, Result>
+  handlers: GuardedMatchHandlersWithKeys<Spec, Result>
 ) {
   return (instance: EnhancedADTInstance<Spec>): Result =>
     matchWithGuards(instance, handlers);
@@ -591,7 +610,7 @@ export function matchWithGuardsDataLast<Spec extends Record<string, any>, Result
  * Data-last tag-only pattern matching with guards
  */
 export function matchTagWithGuardsDataLast<Spec extends Record<string, any>, Result>(
-  handlers: GuardedTagOnlyHandlers<Spec, Result>
+  handlers: GuardedTagOnlyHandlersWithKeys<Spec, Result>
 ) {
   return (instance: EnhancedADTInstance<Spec>): Result =>
     matchTagWithGuards(instance, handlers);
@@ -629,7 +648,7 @@ export function matchTagDataLast<Spec extends Record<string, any>, Result>(
  * Create a reusable matcher with guards
  */
 export function createGuardedMatcher<Spec extends Record<string, any>, Result>(
-  handlers: GuardedMatchHandlers<Spec, Result>
+  handlers: GuardedMatchHandlersWithKeys<Spec, Result>
 ) {
   return (instance: EnhancedADTInstance<Spec>): Result =>
     matchWithGuards(instance, handlers);
@@ -639,7 +658,7 @@ export function createGuardedMatcher<Spec extends Record<string, any>, Result>(
  * Create a reusable tag-only matcher with guards
  */
 export function createGuardedTagMatcher<Spec extends Record<string, any>, Result>(
-  handlers: GuardedTagOnlyHandlers<Spec, Result>
+  handlers: GuardedTagOnlyHandlersWithKeys<Spec, Result>
 ) {
   return (instance: EnhancedADTInstance<Spec>): Result =>
     matchTagWithGuards(instance, handlers);

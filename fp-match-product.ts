@@ -96,7 +96,7 @@ export function exampleUsage(): void {
   console.log('Record result:', recordResult); // "Bob is 25 years old"
   
   // Example 3: Curryable matcher
-  const formatPerson = createProductMatcher(({ name, age }) => 
+  const formatPerson = createProductMatcher<{ name: string; age: number }, string>(({ name, age }) => 
     `${name} (${age})`
   );
   const person1 = { name: 'Charlie', age: 35 } as const;
@@ -130,7 +130,7 @@ export function testMatchProduct(): void {
   console.log('✅ Record test:', result2 === 'Bob is 25 years old');
   
   // Test 3: Curryable matcher
-  const formatPerson = createProductMatcher(({ name, age }) => 
+  const formatPerson = createProductMatcher<{ name: string; age: number }, string>(({ name, age }) => 
     `${name} (${age})`
   );
   const person = { name: 'Charlie', age: 35 } as const;

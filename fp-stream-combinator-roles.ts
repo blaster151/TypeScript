@@ -458,7 +458,7 @@ function demonstrateStreamPipeline() {
   const typedShape = new TypedStreamShape<number, number>((x): x is number => typeof x === 'number');
   const pipeShape = new PipeShape(
     new TypedStreamShape<number, number>((x): x is number => typeof x === 'number'),
-    new TypedStreamShape<string, string>((x): x is string => typeof x === 'string')
+    new TypedStreamShape<number, number>((x): x is number => typeof x === 'number')
   );
   
   // Validate compositions
