@@ -199,7 +199,6 @@ export interface TypeclassAwareFluentMethods<A, T extends TypeclassCapabilities>
  * Typeclass capability detector
  */
 export function detectTypeclassCapabilities(adtName: string): TypeclassCapabilities {
-  const registry = getFPRegistry();
   const derivable = getDerivableInstances(adtName);
   
   return {
@@ -410,7 +409,7 @@ class RuntimeDetectionManager {
   private config: RuntimeDetectionConfig;
   private detectedInstances: Map<string, Set<string>> = new Map();
   private fluentMethodCache: Map<string, any> = new Map();
-  private pollInterval?: NodeJS.Timeout;
+  private pollInterval?: number | ReturnType<typeof setInterval>;
 
   private constructor(config: RuntimeDetectionConfig = { enabled: true }) {
     this.config = {
@@ -731,7 +730,7 @@ export function addTypeclassAwareFluentMethods<A, T extends TypeclassCapabilitie
   // Check cache first for lazy discovery
   const cached = detectionManager.getCachedFluentMethods(adtName);
   if (cached && options.enableLazyDiscovery) {
-    return cached as any & TypeclassAwareFluentMethods<A, T>;
+    return Object.assign(adt, cached) as any & TypeclassAwareFluentMethods<A, T>;
   }
 
   // Get typeclass instances
@@ -746,8 +745,8 @@ export function addTypeclassAwareFluentMethods<A, T extends TypeclassCapabilitie
   const ord = instances.ord || getTypeclassInstance(adtName, 'Ord');
   const show = instances.show || getTypeclassInstance(adtName, 'Show');
 
-  // Create fluent object with typeclass-aware methods
-  const fluent: any = { ...adt };
+  // Create method table to attach onto the current ADT instance
+  const fluent: any = {};
 
   // Functor methods (only if capability exists)
   if (capabilities.Functor && functor) {
@@ -779,28 +778,23 @@ export function addTypeclassAwareFluentMethods<A, T extends TypeclassCapabilitie
       if (n <= 0) {
         return applicative.of([]);
       }
-      
+      if (!functor) {
+        throw new Error('replicateA requires Functor');
+      }
+
       // Create an array of n copies of the applicative
       const replicatedArray = Array.from({ length: n }, () => adt);
-      
-      // Use sequence to convert [F A, F A, F A] to F [A, A, A]
-      // This is equivalent to: array.replicate(n, this).sequence(applicative)
-      const sequence = (fas: any[]): any => {
-        if (fas.length === 0) {
-          return applicative.of([]);
-        }
-        
-        const [head, ...tail] = fas;
-        const tailSequence = sequence(tail);
-        
-        // Apply the head to each element in the tail sequence
-        return applicative.ap(
-          applicative.map(head, (h: any) => (ts: any[]) => [h, ...ts]),
-          tailSequence
-        );
-      };
-      
-      const result = sequence(replicatedArray);
+
+      // Fold using reduceRight: F[A[]] by cons-lifting and ap
+      const result = replicatedArray.reduceRight(
+        (acc: any, fa: any) =>
+          applicative.ap(
+            functor.map(fa, (x: any) => (xs: any[]) => [x, ...xs]),
+            acc
+          ),
+        applicative.of([])
+      );
+
       return addTypeclassAwareFluentMethods(result, adtName, capabilities, options);
     };
   }
@@ -844,10 +838,19 @@ export function addTypeclassAwareFluentMethods<A, T extends TypeclassCapabilitie
     };
     
     // Sequence method - swaps outer and inner structure
-    // Equivalent to: traverse(identity)
+    // Prefer sequence(applicative, fa) if available; otherwise use traverse with identity
     fluent.sequence = <G extends Kind1>(applicative: any): any => {
-      const identity = (a: A) => a;
-      const result = traversable.traverse(adt, identity);
+      const t: any = traversable as any;
+      if (t.sequence && typeof t.sequence === 'function') {
+        const result = t.sequence(applicative, adt);
+        return addTypeclassAwareFluentMethods(result, adtName, capabilities, options);
+      }
+      const identity = (a: A) => a as any;
+      if (t.traverse && t.traverse.length >= 3) {
+        const result = t.traverse(applicative, identity, adt);
+        return addTypeclassAwareFluentMethods(result, adtName, capabilities, options);
+      }
+      const result = t.traverse(adt, identity);
       return addTypeclassAwareFluentMethods(result, adtName, capabilities, options);
     };
   }
@@ -876,7 +879,7 @@ export function addTypeclassAwareFluentMethods<A, T extends TypeclassCapabilitie
     detectionManager.cacheFluentMethods(adtName, fluent);
   }
 
-  return fluent as any & TypeclassAwareFluentMethods<A, T>;
+  return Object.assign(adt, fluent) as any & TypeclassAwareFluentMethods<A, T>;
 }
 
 /**
@@ -2617,7 +2620,7 @@ export function addDeepFluentMethods<
   const cached = detectionManager.getCachedFluentMethods(adtName);
   
   if (cached && options.enableLazyDiscovery) {
-    return cached as A & DeepFluentMethods<A, T, K>;
+    return Object.assign(adt as any, cached) as A & DeepFluentMethods<A, T, K>;
   }
 
   const instances = autoDiscoverDerivedInstances(adtName) || {};
@@ -3098,7 +3101,7 @@ export function addTypeclassAwareComposableFluentMethods<
   // Check cache first for lazy discovery
   const cached = detectionManager.getCachedFluentMethods(adtName);
   if (cached && options.enableLazyDiscovery) {
-    return cached as A & TypeclassAwareComposableFluentMethods<A, T>;
+    return Object.assign(adt as any, cached) as A & TypeclassAwareComposableFluentMethods<A, T>;
   }
 
   // Get typeclass instances
@@ -3113,8 +3116,8 @@ export function addTypeclassAwareComposableFluentMethods<
   const ord = instances.ord || getTypeclassInstance(adtName, 'Ord');
   const show = instances.show || getTypeclassInstance(adtName, 'Show');
 
-  // Create fluent object with typeclass-aware methods
-  const fluent: any = { ...adt };
+  // Create method table to attach onto the current ADT instance
+  const fluent: any = {};
 
   // Initialize chain state
   const chainState = {
@@ -3275,7 +3278,7 @@ export function addTypeclassAwareComposableFluentMethods<
     detectionManager.cacheFluentMethods(adtName, fluent);
   }
 
-  return fluent as A & TypeclassAwareComposableFluentMethods<A, T>;
+  return Object.assign(adt as any, fluent) as A & TypeclassAwareComposableFluentMethods<A, T>;
 }
 
 /**
