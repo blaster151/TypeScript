@@ -524,7 +524,9 @@ function createMapFilterOperator(source: ts.Expression, target: ts.Expression): 
       ts.factory.createCallExpression(filterFn, undefined, [
         ts.factory.createCallExpression(mapFn, undefined, [ts.factory.createIdentifier('x')])
       ]),
+      ts.factory.createToken(ts.SyntaxKind.QuestionToken),
       ts.factory.createCallExpression(mapFn, undefined, [ts.factory.createIdentifier('x')]),
+      ts.factory.createToken(ts.SyntaxKind.ColonToken),
       ts.factory.createIdentifier('undefined')
     )
   );
@@ -557,7 +559,9 @@ function createFilterMapOperator(source: ts.Expression, target: ts.Expression): 
     undefined,
     ts.factory.createConditionalExpression(
       ts.factory.createCallExpression(filterFn, undefined, [ts.factory.createIdentifier('x')]),
+      ts.factory.createToken(ts.SyntaxKind.QuestionToken),
       ts.factory.createCallExpression(mapFn, undefined, [ts.factory.createIdentifier('x')]),
+      ts.factory.createToken(ts.SyntaxKind.ColonToken),
       ts.factory.createIdentifier('undefined')
     )
   );
@@ -652,22 +656,11 @@ function createScanMapOperator(source: ts.Expression, target: ts.Expression): ts
 /**
  * Extract function from a call expression
  */
-function extractFunctionFromCall(call: ts.Expression): ts.Expression {
-  if (ts.isCallExpression(call) && call.arguments.length > 0) {
-    return call.arguments[0];
-  }
-  throw new Error('Cannot extract function from call expression');
-}
+import { extractFunctionFromCall, extractObjectFromCall } from './fusionUtils';
 
 /**
  * Extract object from a call expression
  */
-function extractObjectFromCall(call: ts.Expression): ts.Expression {
-  if (ts.isCallExpression(call) && ts.isPropertyAccessExpression(call.expression)) {
-    return call.expression.expression;
-  }
-  throw new Error('Cannot extract object from call expression');
-}
 
 /**
  * Check if a pragma comment is present

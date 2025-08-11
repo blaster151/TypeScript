@@ -11,6 +11,7 @@
  */
 
 import { StateFn, StatefulStream, createStatefulStream } from './fp-stream-state';
+import { detectBoundary, OptimizationBoundary } from './fp-stream-boundaries';
 
 // ============================================================================
 // AST-Like Plan Representation
@@ -43,6 +44,79 @@ export interface FusionRule {
   match: (node: StreamPlanNode) => boolean;
   rewrite: (node: StreamPlanNode) => StreamPlanNode;
   description: string;
+}
+
+// ============================================================================
+// Boundary Lattice and Oracle Integration
+// ============================================================================
+
+const BoundaryLevel: Record<OptimizationBoundary, number> = {
+  FullyFusable: 0,
+  Staged: 1,
+  OpaqueEffect: 2
+};
+
+function boundaryFromPurityTag(purity: StreamPlanNode['purity']): OptimizationBoundary {
+  switch (purity) {
+    case 'Pure':
+      return 'FullyFusable';
+    case 'State':
+      return 'Staged';
+    case 'Async':
+    case 'IO':
+    default:
+      return 'OpaqueEffect';
+  }
+}
+
+function detectOpBoundary(op: unknown): OptimizationBoundary | null {
+  if (!op) return null;
+  try {
+    const analysis = detectBoundary(op as any, {
+      moduleName: 'fp-stream-fusion',
+      functionName: 'FusionRegistry',
+      lineNumber: 0,
+      columnNumber: 0,
+      fileName: 'fp-stream-fusion.ts',
+      compilationMode: 'production',
+      optimizationLevel: 'aggressive'
+    } as any);
+    return analysis.boundary as OptimizationBoundary;
+  } catch {
+    return null;
+  }
+}
+
+function getNodeBoundary(node: StreamPlanNode): OptimizationBoundary {
+  // Consult oracle on available operator functions
+  const candidates: Array<OptimizationBoundary | null> = [
+    detectOpBoundary(node.fn),
+    detectOpBoundary(node.predicate),
+    detectOpBoundary(node.filterMapFn),
+    detectOpBoundary(node.scanFn),
+    detectOpBoundary(node.flatMapFn)
+  ];
+  const oracleBoundary = candidates.reduce<OptimizationBoundary | null>((acc, b) => {
+    if (!b) return acc;
+    if (!acc) return b;
+    return BoundaryLevel[b] > BoundaryLevel[acc] ? b : acc;
+  }, null);
+
+  const purityBoundary = boundaryFromPurityTag(node.purity);
+
+  // Return the worst (highest) boundary among oracle and purity mapping
+  if (oracleBoundary && BoundaryLevel[oracleBoundary] > BoundaryLevel[purityBoundary]) {
+    return oracleBoundary;
+  }
+  return purityBoundary;
+}
+
+function canFuseByBoundary(a: StreamPlanNode, b: StreamPlanNode): boolean {
+  const ba = getNodeBoundary(a);
+  const bb = getNodeBoundary(b);
+  // Disallow when either side reaches or exceeds OpaqueEffect level
+  const disallowedLevel = BoundaryLevel.OpaqueEffect;
+  return BoundaryLevel[ba] < disallowedLevel && BoundaryLevel[bb] < disallowedLevel;
 }
 
 /**
@@ -196,7 +270,7 @@ export function fuseFilterMap<A, B>(
 export const FusionRegistry: FusionRule[] = [
   {
     name: 'Map-Map Fusion',
-    match: (n) => n.type === 'map' && n.next?.type === 'map' && n.purity === 'Pure' && n.next.purity === 'Pure',
+    match: (n) => n.type === 'map' && n.next?.type === 'map' && n.purity === 'Pure' && n.next.purity === 'Pure' && canFuseByBoundary(n, n.next!),
     rewrite: (n) => ({
       type: 'map',
       fn: fuseMapMap(n.fn!, n.next!.fn!),
@@ -208,7 +282,7 @@ export const FusionRegistry: FusionRule[] = [
   
   {
     name: 'Map Past Scan',
-    match: (n) => n.type === 'map' && n.next?.type === 'scan' && n.purity === 'Pure',
+    match: (n) => n.type === 'map' && n.next?.type === 'scan' && n.purity === 'Pure' && canFuseByBoundary(n, n.next!),
     rewrite: (n) => ({
       ...n.next!,
       scanFn: pushMapPastScan(n.fn!, n.next!.scanFn!),
@@ -219,7 +293,7 @@ export const FusionRegistry: FusionRule[] = [
   
   {
     name: 'Filter-Filter Fusion',
-    match: (n) => n.type === 'filter' && n.next?.type === 'filter' && n.purity === 'Pure' && n.next.purity === 'Pure',
+    match: (n) => n.type === 'filter' && n.next?.type === 'filter' && n.purity === 'Pure' && n.next.purity === 'Pure' && canFuseByBoundary(n, n.next!),
     rewrite: (n) => ({
       type: 'filter',
       predicate: fuseFilters(n.predicate!, n.next!.predicate!),
@@ -231,7 +305,7 @@ export const FusionRegistry: FusionRule[] = [
   
   {
     name: 'FilterMap-FilterMap Fusion',
-    match: (n) => n.type === 'filterMap' && n.next?.type === 'filterMap' && n.purity === 'Pure' && n.next.purity === 'Pure',
+    match: (n) => n.type === 'filterMap' && n.next?.type === 'filterMap' && n.purity === 'Pure' && n.next.purity === 'Pure' && canFuseByBoundary(n, n.next!),
     rewrite: (n) => ({
       type: 'filterMap',
       filterMapFn: fuseFilterMaps(n.filterMapFn!, n.next!.filterMapFn!),
@@ -243,7 +317,7 @@ export const FusionRegistry: FusionRule[] = [
   
   {
     name: 'Map-Filter Fusion',
-    match: (n) => n.type === 'map' && n.next?.type === 'filter' && n.purity === 'Pure' && n.next.purity === 'Pure',
+    match: (n) => n.type === 'map' && n.next?.type === 'filter' && n.purity === 'Pure' && n.next.purity === 'Pure' && canFuseByBoundary(n, n.next!),
     rewrite: (n) => ({
       type: 'filterMap',
       filterMapFn: fuseMapFilter(n.fn!, n.next!.predicate!),
@@ -255,7 +329,7 @@ export const FusionRegistry: FusionRule[] = [
   
   {
     name: 'Filter-Map Fusion',
-    match: (n) => n.type === 'filter' && n.next?.type === 'map' && n.purity === 'Pure' && n.next.purity === 'Pure',
+    match: (n) => n.type === 'filter' && n.next?.type === 'map' && n.purity === 'Pure' && n.next.purity === 'Pure' && canFuseByBoundary(n, n.next!),
     rewrite: (n) => ({
       type: 'filterMap',
       filterMapFn: fuseFilterMap(n.predicate!, n.next!.fn!),
@@ -267,7 +341,7 @@ export const FusionRegistry: FusionRule[] = [
   
   {
     name: 'Scan-Scan Fusion',
-    match: (n) => n.type === 'scan' && n.next?.type === 'scan' && n.purity === 'State' && n.next.purity === 'State',
+    match: (n) => n.type === 'scan' && n.next?.type === 'scan' && n.purity === 'State' && n.next.purity === 'State' && canFuseByBoundary(n, n.next!),
     rewrite: (n) => ({
       type: 'scan',
       scanFn: fuseScans(n.scanFn!, n.next!.scanFn!),
@@ -279,13 +353,18 @@ export const FusionRegistry: FusionRule[] = [
   
   {
     name: 'Pure Segment Fusion',
-    match: (n) => n.type === 'map' && n.next?.type === 'map' && n.purity === 'Pure' && n.next.purity === 'Pure',
+    match: (n) => n.type === 'map' && n.next?.type === 'map' && n.purity === 'Pure' && n.next.purity === 'Pure' && canFuseByBoundary(n, n.next!),
     rewrite: (n) => {
       // Collect all consecutive pure operations
       const pureOps: StreamPlanNode[] = [];
       let current = n;
       
-      while (current && current.purity === 'Pure' && ['map', 'filter', 'filterMap'].includes(current.type)) {
+      while (
+        current &&
+        current.purity === 'Pure' &&
+        ['map', 'filter', 'filterMap'].includes(current.type) &&
+        (!current.next || canFuseByBoundary(current, current.next))
+      ) {
         pureOps.push(current);
         current = current.next!;
       }
@@ -325,9 +404,39 @@ export function optimizePlan(root: StreamPlanNode, context: FusionContext = { de
   
   let changed = true;
   let optimizedRoot = { ...root };
+
+  // Yoneda-style map-run fusion: compose consecutive pure maps into a single map
+  const fuseMapRun = (node: StreamPlanNode | undefined): StreamPlanNode | undefined => {
+    if (!node) return node;
+    // Compress at this node
+    if (node.type === 'map' && node.purity === 'Pure') {
+      let current: StreamPlanNode | undefined = node.next;
+      const fns: Function[] = [node.fn!];
+      while (current && current.type === 'map' && current.purity === 'Pure' && current.fn) {
+        fns.push(current.fn);
+        current = current.next;
+        changed = true;
+      }
+      if (fns.length > 1) {
+        // Compose functions right-to-left: fns[n-1] ∘ ... ∘ fns[0]
+        const composed = fns.reduce((acc, fn) => {
+          if (!acc) return fn;
+          return (x: any) => (fn as any)(acc(x));
+        }) as any as Function;
+        node = { type: 'map', fn: composed, purity: 'Pure', next: current } as StreamPlanNode;
+      }
+    }
+    // Recurse
+    if (node.next) node.next = fuseMapRun(node.next) as StreamPlanNode;
+    if (node.left) node.left = fuseMapRun(node.left) as StreamPlanNode;
+    if (node.right) node.right = fuseMapRun(node.right) as StreamPlanNode;
+    return node;
+  };
   
   while (changed) {
     changed = false;
+    // Apply map-run fusion before rule-driven fusion
+    optimizedRoot = fuseMapRun(optimizedRoot)!;
     
     for (const rule of FusionRegistry) {
       if (rule.match(optimizedRoot)) {

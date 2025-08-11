@@ -12,105 +12,68 @@
  * - Fusion optimization integration
  */
 
-import { ObservableLite, ObservableLiteK } from './fp-observable-lite';
+import { ObservableLite } from './fp-observable-lite';
 import { StatefulStream } from './fp-stream-state';
-import { 
-  Functor, 
-  Applicative, 
-  Monad, 
-  Bifunctor, 
-  Profunctor,
-  registerInstance 
-} from './fp-typeclasses-hkt';
-
-import {
-  UnifiedStreamFunctor,
-  UnifiedStreamMonad,
-  UnifiedStreamBifunctor,
-  CommonStreamOps
-} from './fp-stream-ops';
+import { Functor, Applicative, Monad } from './fp-typeclasses-hkt';
+import { ObservableLiteK } from './fp-observable-lite';
+import { StatefulStreamK } from './fp-stream-state';
+import { Kind1, Apply } from './fp-hkt';
+import { toObservableLiteEvent } from './fp-frp-bridge';
 
 // ============================================================================
 // Part 1: Unified Stream Type
 // ============================================================================
 
-/**
- * Unified stream type that can be either ObservableLite or StatefulStream
- */
-export type UnifiedStream<A> = ObservableLite<A> | StatefulStream<any, any, A>;
+// Option A — adapter/wrapper: one tagged wrapper that is a proper Kind1
 
-/**
- * Type guard for unified streams
- */
-export function isUnifiedStream(value: any): value is UnifiedStream<any> {
-  return value instanceof ObservableLite || 
-         (value && typeof value.run === 'function' && typeof value.__purity === 'string');
+export interface UStreamK extends Kind1 {
+  readonly type: UStreamT<this['arg0']>;
 }
+
+export type UStreamT<A> =
+  | { _tag: 'Obs'; obs: ObservableLite<A> }
+  | { _tag: 'State'; st: StatefulStream<any, any, A> };
+
+export const UStream = {
+  fromObs<A>(obs: ObservableLite<A>): UStreamT<A> { return { _tag: 'Obs', obs }; },
+  fromState<A>(st: StatefulStream<any, any, A>): UStreamT<A> { return { _tag: 'State', st }; },
+  toObs<A>(u: UStreamT<A>): ObservableLite<A> {
+    return u._tag === 'Obs' ? u.obs : toObservableLiteEvent(u.st as any, {} as any);
+  }
+};
 
 // ============================================================================
 // Part 2: Unified Typeclass Instances
 // ============================================================================
 
-/**
- * Unified Functor instance for both stream types
- */
-export const UnifiedStreamFunctorInstance: Functor<UnifiedStream<any>> = {
-  map: <A, B>(fa: UnifiedStream<A>, f: (a: A) => B): UnifiedStream<B> => {
-    return fa.map(f);
-  }
+// Functor instance for the wrapper HKT
+export const UStreamFunctor: Functor<UStreamK> = {
+  map: <A, B>(fa: UStreamT<A>, f: (a: A) => B): UStreamT<B> =>
+    fa._tag === 'Obs'
+      ? UStream.fromObs(fa.obs.map(f))
+      : UStream.fromState(fa.st.map(f) as any)
 };
 
-/**
- * Unified Applicative instance for both stream types
- */
-export const UnifiedStreamApplicativeInstance: Applicative<UnifiedStream<any>> = {
-  ...UnifiedStreamFunctorInstance,
-  of: <A>(a: A): UnifiedStream<A> => {
-    // Use ObservableLite.of as the default implementation
-    return ObservableLite.of(a);
-  },
-  ap: <A, B>(fab: UnifiedStream<(a: A) => B>, fa: UnifiedStream<A>): UnifiedStream<B> => {
-    // Implement ap using chain and map
-    return fab.chain(f => fa.map(f));
-  }
+// Applicative instance for the wrapper HKT
+export const UStreamApplicative: Applicative<UStreamK> = {
+  ...UStreamFunctor,
+  of: <A>(a: A): UStreamT<A> => UStream.fromObs(ObservableLite.of(a)),
+  ap: <A, B>(ff: UStreamT<(a: A) => B>, fa: UStreamT<A>): UStreamT<B> =>
+    UStream.fromObs(
+      UStream.toObs(ff).flatMap(f => UStream.toObs(fa).map(f))
+    )
 };
 
-/**
- * Unified Monad instance for both stream types
- */
-export const UnifiedStreamMonadInstance: Monad<UnifiedStream<any>> = {
-  ...UnifiedStreamApplicativeInstance,
-  chain: <A, B>(fa: UnifiedStream<A>, f: (a: A) => UnifiedStream<B>): UnifiedStream<B> => {
-    return fa.chain(f);
-  }
+// Monad instance for the wrapper HKT
+export const UStreamMonad: Monad<UStreamK> = {
+  ...UStreamApplicative,
+  chain: <A, B>(fa: UStreamT<A>, f: (a: A) => UStreamT<B>): UStreamT<B> =>
+    UStream.fromObs(
+      UStream.toObs(fa).chain(a => UStream.toObs(f(a)))
+    )
 };
 
-/**
- * Unified Bifunctor instance for both stream types
- */
-export const UnifiedStreamBifunctorInstance: Bifunctor<UnifiedStream<any>> = {
-  bimap: <A, B, C, D>(
-    fa: UnifiedStream<A>, 
-    f: (a: A) => B, 
-    g: (err: any) => C
-  ): UnifiedStream<B> => {
-    return fa.bimap(f, g);
-  }
-};
-
-/**
- * Unified Profunctor instance for both stream types
- */
-export const UnifiedStreamProfunctorInstance: Profunctor<UnifiedStream<any>> = {
-  dimap: <A, B, C, D>(
-    pab: UnifiedStream<B>,
-    f: (c: C) => A,
-    g: (b: B) => D
-  ): UnifiedStream<D> => {
-    // Implement dimap using map and composition
-    return pab.map(g);
-  }
-};
+// Note: Do not advertise Bifunctor/Profunctor for the unified wrapper.
 
 // ============================================================================
 // Part 3: Instance Registration
@@ -120,25 +83,10 @@ export const UnifiedStreamProfunctorInstance: Profunctor<UnifiedStream<any>> = {
  * Register unified instances with the typeclass system
  */
 export function registerUnifiedInstances(): void {
-  // Register ObservableLite instances
-  registerInstance(ObservableLiteK, UnifiedStreamMonadInstance);
-  
-  // Register StatefulStream instances (if we had a proper HKT for it)
-  // For now, we'll use the unified instances directly
-  
-  // Register with global registry if available
-  if (typeof globalThis !== 'undefined' && (globalThis as any).__FP_REGISTRY) {
-    const registry = (globalThis as any).__FP_REGISTRY;
-    
-    registry.register('UnifiedStream', {
-      functor: UnifiedStreamFunctorInstance,
-      applicative: UnifiedStreamApplicativeInstance,
-      monad: UnifiedStreamMonadInstance,
-      bifunctor: UnifiedStreamBifunctorInstance,
-      profunctor: UnifiedStreamProfunctorInstance,
-      purity: { effect: 'Async' as const }
-    });
-  }
+  // Register concrete HKTs with their own dictionaries elsewhere (kept here for clarity):
+  // Note: Assuming ObservableLite and StatefulStream have their own instances defined/registered
+  // in their respective modules. We do NOT register unified instances under concrete HKTs.
+  // If consumers want the unified wrapper instances, they can import UStream* directly.
 }
 
 // ============================================================================
@@ -149,62 +97,57 @@ export function registerUnifiedInstances(): void {
  * Unified map function that works on both stream types
  */
 export function unifiedMap<A, B>(
-  stream: UnifiedStream<A>,
+  stream: UStreamT<A>,
   fn: (a: A) => B
-): UnifiedStream<B> {
-  return stream.map(fn);
+): UStreamT<B> {
+  return UStreamFunctor.map(stream, fn);
 }
 
 /**
  * Unified filter function that works on both stream types
  */
 export function unifiedFilter<A>(
-  stream: UnifiedStream<A>,
+  stream: UStreamT<A>,
   pred: (a: A) => boolean
-): UnifiedStream<A> {
-  return stream.filter(pred);
+): UStreamT<A> {
+  // Fallback through ObservableLite for unified behavior
+  return UStream.fromObs(UStream.toObs(stream).filter(pred));
 }
 
 /**
  * Unified scan function that works on both stream types
  */
 export function unifiedScan<A, B>(
-  stream: UnifiedStream<A>,
+  stream: UStreamT<A>,
   reducer: (acc: B, value: A) => B,
   seed: B
-): UnifiedStream<B> {
-  return stream.scan(reducer, seed);
+): UStreamT<B> {
+  return UStream.fromObs(UStream.toObs(stream).scan(reducer, seed));
 }
 
 /**
  * Unified chain function that works on both stream types
  */
 export function unifiedChain<A, B>(
-  stream: UnifiedStream<A>,
-  fn: (a: A) => UnifiedStream<B>
-): UnifiedStream<B> {
-  return stream.chain(fn);
+  stream: UStreamT<A>,
+  fn: (a: A) => UStreamT<B>
+): UStreamT<B> {
+  return UStreamMonad.chain(stream, fn);
 }
 
 /**
  * Unified bichain function that works on both stream types
  */
-export function unifiedBichain<A, L, R>(
-  stream: UnifiedStream<A>,
-  left: (l: L) => UnifiedStream<R>,
-  right: (r: R) => UnifiedStream<R>
-): UnifiedStream<R> {
-  return stream.bichain(left, right);
-}
+// No unified bichain: keep on concrete types that support it.
 
 /**
  * Unified pipe function that works on both stream types
  */
 export function unifiedPipe<A, B>(
-  stream: UnifiedStream<A>,
-  ...operators: Array<(s: UnifiedStream<any>) => UnifiedStream<any>>
-): UnifiedStream<B> {
-  return stream.pipe(...operators);
+  stream: UStreamT<A>,
+  ...operators: Array<(s: UStreamT<any>) => UStreamT<any>>
+): UStreamT<B> {
+  return operators.reduce((s, op) => op(s), stream) as any;
 }
 
 // ============================================================================
@@ -215,41 +158,41 @@ export function unifiedPipe<A, B>(
  * Type-safe pipeline builder for unified streams
  */
 export class UnifiedPipelineBuilder<A> {
-  private stream: UnifiedStream<A>;
+  private stream: UStreamT<A>;
 
-  constructor(stream: UnifiedStream<A>) {
+  constructor(stream: UStreamT<A>) {
     this.stream = stream;
   }
 
   map<B>(fn: (a: A) => B): UnifiedPipelineBuilder<B> {
-    return new UnifiedPipelineBuilder(this.stream.map(fn));
+    return new UnifiedPipelineBuilder(unifiedMap(this.stream, fn));
   }
 
   filter(pred: (a: A) => boolean): UnifiedPipelineBuilder<A> {
-    return new UnifiedPipelineBuilder(this.stream.filter(pred));
+    return new UnifiedPipelineBuilder(unifiedFilter(this.stream, pred));
   }
 
   scan<B>(reducer: (acc: B, value: A) => B, seed: B): UnifiedPipelineBuilder<B> {
-    return new UnifiedPipelineBuilder(this.stream.scan(reducer, seed));
+    return new UnifiedPipelineBuilder(unifiedScan(this.stream, reducer, seed));
   }
 
   chain<B>(fn: (a: A) => UnifiedStream<B>): UnifiedPipelineBuilder<B> {
-    return new UnifiedPipelineBuilder(this.stream.chain(fn));
+    return new UnifiedPipelineBuilder(unifiedChain(this.stream as any, fn as any));
   }
 
   take(count: number): UnifiedPipelineBuilder<A> {
-    return new UnifiedPipelineBuilder(this.stream.take(count));
+    return new UnifiedPipelineBuilder(UStream.fromObs(UStream.toObs(this.stream).take(count)));
   }
 
   skip(count: number): UnifiedPipelineBuilder<A> {
-    return new UnifiedPipelineBuilder(this.stream.skip(count));
+    return new UnifiedPipelineBuilder(UStream.fromObs(UStream.toObs(this.stream).skip(count)));
   }
 
   distinct(): UnifiedPipelineBuilder<A> {
-    return new UnifiedPipelineBuilder(this.stream.distinct());
+    return new UnifiedPipelineBuilder(UStream.fromObs(UStream.toObs(this.stream).distinct()));
   }
 
-  build(): UnifiedStream<A> {
+  build(): UStreamT<A> {
     return this.stream;
   }
 }
@@ -257,7 +200,7 @@ export class UnifiedPipelineBuilder<A> {
 /**
  * Create a unified pipeline builder
  */
-export function createUnifiedPipeline<A>(stream: UnifiedStream<A>): UnifiedPipelineBuilder<A> {
+export function createUnifiedPipeline<A>(stream: UStreamT<A>): UnifiedPipelineBuilder<A> {
   return new UnifiedPipelineBuilder(stream);
 }
 
@@ -269,53 +212,54 @@ export function createUnifiedPipeline<A>(stream: UnifiedStream<A>): UnifiedPipel
  * Convert ObservableLite to StatefulStream
  */
 export function observableToStateful<A>(obs: ObservableLite<A>): StatefulStream<A, {}, A> {
-  // This is a simplified conversion
-  // In practice, you'd need to handle the subscription properly
-  return {
-    run: (input: A) => (state: {}) => [state, input],
-    __purity: 'Async' as const,
-    __source: obs,
-    __state: {},
-    __plan: undefined
-  };
+  // Prefer existing bridge if available elsewhere; placeholder pass-through stateful
+  return new StatefulStream<A, {}, A>((input: A) => (state: {}) => [state, input], 'Async' as const);
 }
 
 /**
  * Convert StatefulStream to ObservableLite
  */
 export function statefulToObservable<A>(stream: StatefulStream<any, any, A>): ObservableLite<A> {
-  // This is a simplified conversion
-  // In practice, you'd need to handle the execution properly
   return new ObservableLite<A>((observer) => {
-    // Simplified subscription logic
-    return () => {}; // cleanup
+    let state: any = {};
+    // We return a function that upstream can call to push inputs if desired.
+    // For now, we expose a no-op teardown; integration points can wire inputs externally.
+    const drive = (input: any) => {
+      try {
+        const [s2, out] = stream.run(input)(state);
+        state = s2;
+        observer.next(out);
+      } catch (err) {
+        observer.error?.(err);
+      }
+    };
+    // Immediately complete if there is no driving source.
+    observer.complete?.();
+    return () => { /* teardown */ };
   });
 }
 
 /**
  * Check if two streams are interoperable
  */
+function isUStream(x: any): x is UStreamT<any> {
+  return x && (x._tag === 'Obs' || x._tag === 'State');
+}
+
 export function areInteroperable(stream1: any, stream2: any): boolean {
-  return isUnifiedStream(stream1) && isUnifiedStream(stream2);
+  return isUStream(stream1) && isUStream(stream2);
 }
 
 /**
  * Combine two unified streams
  */
 export function combineUnifiedStreams<A, B>(
-  stream1: UnifiedStream<A>,
-  stream2: UnifiedStream<B>
-): UnifiedStream<A | B> {
-  // For now, we'll use ObservableLite.merge as the default
-  if (stream1 instanceof ObservableLite && stream2 instanceof ObservableLite) {
-    return ObservableLite.merge(stream1, stream2);
-  }
-  
-  // For mixed types, convert to ObservableLite
-  const obs1 = stream1 instanceof ObservableLite ? stream1 : statefulToObservable(stream1);
-  const obs2 = stream2 instanceof ObservableLite ? stream2 : statefulToObservable(stream2);
-  
-  return ObservableLite.merge(obs1, obs2);
+  stream1: UStreamT<A>,
+  stream2: UStreamT<B>
+): UStreamT<A | B> {
+  const obs1 = UStream.toObs(stream1) as ObservableLite<A | B>;
+  const obs2 = UStream.toObs(stream2) as ObservableLite<A | B>;
+  return UStream.fromObs(ObservableLite.merge(obs1, obs2));
 }
 
 // ============================================================================
@@ -325,39 +269,16 @@ export function combineUnifiedStreams<A, B>(
 /**
  * Type assertion helper for unified streams
  */
-export type AssertUnified<T> = T extends UnifiedStream<any> ? true : false;
+export type AssertUnified<T> = T extends UStreamT<any> ? true : false;
 
 /**
  * Type assertion helper for same API
  */
-export type AssertSameAPI<T, U> = T extends CommonStreamOps<any> ? 
-  (U extends CommonStreamOps<any> ? true : never) : never;
+export type AssertSameAPI<T, U> = unknown;
 
 // ============================================================================
 // Part 8: Exports
 // ============================================================================
 
-export {
-  UnifiedStream,
-  isUnifiedStream,
-  UnifiedStreamFunctorInstance,
-  UnifiedStreamApplicativeInstance,
-  UnifiedStreamMonadInstance,
-  UnifiedStreamBifunctorInstance,
-  UnifiedStreamProfunctorInstance,
-  registerUnifiedInstances,
-  unifiedMap,
-  unifiedFilter,
-  unifiedScan,
-  unifiedChain,
-  unifiedBichain,
-  unifiedPipe,
-  UnifiedPipelineBuilder,
-  createUnifiedPipeline,
-  observableToStateful,
-  statefulToObservable,
-  areInteroperable,
-  combineUnifiedStreams,
-  AssertUnified,
-  AssertSameAPI
-}; 
+// Backward-compat type alias
+export type UnifiedStream<A> = UStreamT<A>;

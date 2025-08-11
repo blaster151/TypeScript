@@ -37,8 +37,7 @@ import {
 // Import ObservableLite for conversions
 import { ObservableLite } from './fp-observable-lite';
 
-// Import fluent API
-import { applyFluentOps, FluentImpl } from './fp-fluent-api';
+// Note: We avoid runtime prototype augmentation for StatefulStream.
 
 // ============================================================================
 // Core Types
@@ -102,26 +101,79 @@ export interface StatefulStreamK extends Kind3 {
  * S: State type  
  * O: Output type
  */
-export interface StatefulStream<I, S, O> {
-  readonly run: (input: I) => StateFn<S, O>;
-  readonly __brand: 'StatefulStream';
-  readonly __purity: EffectTag;
+export class StatefulStream<I, S, O> {
+  public readonly __brand: 'StatefulStream' = 'StatefulStream';
+  public readonly __purity: EffectTag;
+  private readonly runFn: (input: I) => StateFn<S, O>;
 
-  /**
-   * Convert StatefulStream to ObservableLite
-   * This enables FP pipelines to move from stateful monoid-homomorphic streams to reactive push streams
-   */
-  toObservableLite(inputs: Iterable<I>, initialState?: S): ObservableLite<O>;
-  
-  /**
-   * Convert StatefulStream to ObservableLite with async execution
-   */
-  toObservableLiteAsync(inputs: AsyncIterable<I>, initialState?: S): ObservableLite<O>;
-  
-  /**
-   * Convert StatefulStream to ObservableLite with event-driven execution
-   */
-  toObservableLiteEvent(initialState?: S): ObservableLite<O>;
+  constructor(run: (input: I) => StateFn<S, O>, purity: EffectTag = 'State') {
+    this.runFn = run;
+    this.__purity = purity;
+  }
+
+  get run(): (input: I) => StateFn<S, O> {
+    return this.runFn;
+  }
+
+  // Conversions
+  toObservableLite(inputs: Iterable<I> = [], initialState?: S): ObservableLite<O> {
+    return new ObservableLite(this.runFn, inputs, initialState);
+  }
+
+  toObservableLiteAsync(inputs: AsyncIterable<I>, initialState?: S): ObservableLite<O> {
+    return new ObservableLite(this.runFn, inputs as any, initialState);
+  }
+
+  toObservableLiteEvent(initialState?: S): ObservableLite<O> {
+    return new ObservableLite(this.runFn, undefined as any, initialState);
+  }
+
+  // Functor
+  map<B>(f: (a: O) => B): StatefulStream<I, S, B> {
+    const purity: EffectTag = this.__purity === 'Pure' ? 'Pure' : 'State';
+    return new StatefulStream<I, S, B>((input) => (state) => {
+      const [s2, a] = this.run(input)(state);
+      return [s2, f(a)];
+    }, purity);
+  }
+
+  // Applicative
+  ap<A, B>(this: StatefulStream<I, S, (a: A) => B>, other: StatefulStream<I, S, A>): StatefulStream<I, S, B> {
+    const purity: EffectTag = (this.__purity === 'Pure' && other.__purity === 'Pure') ? 'Pure' : 'State';
+    return new StatefulStream<I, S, B>((input) => (state) => {
+      const [s1, f] = this.run(input)(state);
+      const [s2, a] = other.run(input)(s1);
+      return [s2, f(a)];
+    }, purity);
+  }
+
+  // Monad
+  chain<B>(f: (a: O) => StatefulStream<I, S, B>): StatefulStream<I, S, B> {
+    return new StatefulStream<I, S, B>((input) => (state) => {
+      const [s2, a] = this.run(input)(state);
+      return f(a).run(input)(s2);
+    }, 'State');
+  }
+
+  flatMap<B>(f: (a: O) => StatefulStream<I, S, B>): StatefulStream<I, S, B> {
+    return this.chain(f);
+  }
+
+  // Profunctor
+  dimap<I2, O2>(f: (i2: I2) => I, g: (o: O) => O2): StatefulStream<I2, S, O2> {
+    return new StatefulStream<I2, S, O2>((input2) => (state) => {
+      const [s2, o] = this.run(f(input2))(state);
+      return [s2, g(o)];
+    }, this.__purity);
+  }
+
+  lmap<I2>(f: (i2: I2) => I): StatefulStream<I2, S, O> {
+    return new StatefulStream<I2, S, O>((input2) => (state) => this.run(f(input2))(state), this.__purity);
+  }
+
+  rmap<O2>(g: (o: O) => O2): StatefulStream<I, S, O2> {
+    return this.map(g);
+  }
 }
 
 /**
@@ -131,14 +183,7 @@ export function createStatefulStream<I, S, O>(
   run: (input: I) => StateFn<S, O>,
   purity: EffectTag = 'State'
 ): StatefulStream<I, S, O> {
-  return {
-    run,
-    __brand: 'StatefulStream',
-    __purity: purity,
-    toObservableLite: (inputs, initialState) => new ObservableLite(run, inputs, initialState),
-    toObservableLiteAsync: (inputs, initialState) => new ObservableLite(run, inputs, initialState),
-    toObservableLiteEvent: (initialState) => new ObservableLite(run, undefined, initialState)
-  } as StatefulStream<I, S, O>;
+  return new StatefulStream<I, S, O>(run, purity);
 }
 
 /**
@@ -526,50 +571,6 @@ export {
   StatefulStreamApplicative as Applicative,
   StatefulStreamMonad as Monad,
   StatefulStreamProfunctor as Profunctor
-}; 
-
-// ============================================================================
-// Part 15: Unified Fluent API Integration
-// ============================================================================
-
-/**
- * Apply unified fluent API to StatefulStream
- */
-const StatefulStreamFluentImpl: FluentImpl<any> = {
-  map: (self, f) => self.map(f),
-  chain: (self, f) => self.flatMap(f),
-  flatMap: (self, f) => self.flatMap(f),
-  filter: (self, pred) => self.filter(pred),
-  filterMap: (self, f) => self.filterMap(f),
-  scan: (self, reducer, seed) => self.scan(reducer, seed),
-  take: (self, n) => self.take(n),
-  skip: (self, n) => self.skip(n),
-  distinct: (self) => self.distinct(),
-  drop: (self, n) => self.drop(n),
-  slice: (self, start, end) => self.slice(start, end),
-  reverse: (self) => self.reverse(),
-  sortBy: (self, fn) => self.sortBy(fn),
-  pipe: (self, ...fns) => self.pipe(...fns)
-};
-
-// Apply fluent API to StatefulStream prototype
-applyFluentOps(StatefulStream.prototype, StatefulStreamFluentImpl);
-
-// Add conversion methods
-StatefulStream.prototype.toObservableLite = function(inputs: Iterable<any> = [], initialState: any = {}) {
-  return toObservableLite(this, inputs, initialState);
-};
-
-StatefulStream.prototype.toMaybe = function() {
-  return toMaybe(this);
-};
-
-StatefulStream.prototype.toEither = function() {
-  return toEither(this);
-};
-
-StatefulStream.prototype.toResult = function() {
-  return toResult(this);
 }; 
 
 // ============================================================================

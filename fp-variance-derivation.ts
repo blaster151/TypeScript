@@ -52,4 +52,67 @@ export function varianceGuidedDecision(modulePath: string, exportName: string): 
   return decideFromVariance(info.arity, info.variance);
 }
 
+// ============================================================================
+// Non-flickering diagnostics helpers
+// ============================================================================
+
+function fmtVariance(variance: ReadonlyArray<VarianceTag>): string {
+  return `(${variance.join(', ')})`;
+}
+
+function tick(ok: boolean): string { return ok ? '✓' : '✗'; }
+
+function messageForKindRequirement(kind: DerivableClass, variance: ReadonlyArray<VarianceTag>): string {
+  const arity = variance.length;
+  if (kind === 'Functor' && arity >= 1) {
+    const last = variance[arity - 1];
+    return `map requires covariant last parameter: last is ${last} ${tick(last === 'Out')}`;
+  }
+  if (kind === 'Contravariant' && arity >= 1) {
+    const first = variance[0];
+    return `contramap requires contravariant first parameter: first is ${first} ${tick(first === 'In')}`;
+  }
+  if (kind === 'Bifunctor' && arity >= 2) {
+    const [v0, v1] = variance as any;
+    const ok = v0 === 'Out' && v1 === 'Out';
+    return `bimap requires covariant parameters: (${v0}, ${v1}) ${tick(ok)}`;
+  }
+  if (kind === 'Profunctor' && arity >= 2) {
+    const [v0, v1] = variance as any;
+    const ok = v0 === 'In' && v1 === 'Out';
+    return `dimap requires (In, Out): (${v0}, ${v1}) ${tick(ok)}`;
+  }
+  return `${kind} requirement not met for arity ${arity}`;
+}
+
+function suggestionForVariance(variance: ReadonlyArray<VarianceTag>): string | undefined {
+  const arity = variance.length;
+  if (arity === 2) {
+    const [v0, v1] = variance;
+    if (v1 === 'Out') return 'consider ApplyLeft to fix the first slot and derive Functor on the second.';
+    if (v0 === 'In') return 'consider ApplyRight to fix the second slot and derive Contravariant on the first.';
+  }
+  return undefined;
+}
+
+/**
+ * Build a stable, non-flickering diagnostic string for a derivation requirement.
+ * Includes SymbolKey and DeclHash, and the remote module's variance.
+ */
+export function getKindDiagnosticIfNew(
+  required: DerivableClass,
+  modulePath: string,
+  exportName: string
+): string | undefined {
+  const info = hydrateKindInfoFromSideTable(defaultKindCache, modulePath, exportName);
+  if (!info) return undefined;
+  const prefix = `[kind] ${exportName} @ ${modulePath}`;
+  const varianceStr = fmtVariance(info.variance);
+  const requirement = messageForKindRequirement(required, info.variance);
+  const suggestion = suggestionForVariance(info.variance);
+  const message = `${prefix}: ${varianceStr}; ${requirement}${suggestion ? ` — ${suggestion}` : ''}.\nkey=${info.symbolKey} declHash=${info.hashOfDecl}`;
+  const should = defaultKindCache.shouldReportDiagnostic(info.symbolKey, info.hashOfDecl, message);
+  return should ? message : undefined;
+}
+
 

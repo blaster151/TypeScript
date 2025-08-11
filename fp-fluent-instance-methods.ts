@@ -30,7 +30,7 @@ import {
 } from './fp-persistent';
 
 import {
-  // StatefulStream
+  // StatefulStream is now a class; we will not augment its prototype here
   StatefulStream
 } from './fp-stream-state';
 
@@ -335,64 +335,8 @@ export function addPersistentSetFluentMethods(): void {
  * Add fluent methods to StatefulStream instances
  */
 export function addStatefulStreamFluentMethods(): void {
-  if (!StatefulStream || typeof StatefulStream !== 'function') {
-    console.warn('StatefulStream constructor not available for fluent augmentation');
-    return;
-  }
-
-  // Functor methods
-  StatefulStream.prototype.map = function<I, S, A, B>(this: StatefulStream<I, S, A>, f: (a: A) => B): StatefulStream<I, S, B> {
-    return this.map(f);
-  };
-
-  // Applicative methods
-  StatefulStream.prototype.ap = function<I, S, A, B>(
-    this: StatefulStream<I, S, (a: A) => B>,
-    other: StatefulStream<I, S, A>
-  ): StatefulStream<I, S, B> {
-    return this.ap(other);
-  };
-
-  // Monad methods
-  StatefulStream.prototype.chain = function<I, S, A, B>(
-    this: StatefulStream<I, S, A>,
-    f: (a: A) => StatefulStream<I, S, B>
-  ): StatefulStream<I, S, B> {
-    return this.chain(f);
-  };
-
-  // Alias for chain
-  StatefulStream.prototype.flatMap = function<I, S, A, B>(
-    this: StatefulStream<I, S, A>,
-    f: (a: A) => StatefulStream<I, S, B>
-  ): StatefulStream<I, S, B> {
-    return this.chain(f);
-  };
-
-  // Profunctor methods
-  StatefulStream.prototype.dimap = function<I, S, A, I2, A2>(
-    this: StatefulStream<I, S, A>,
-    f: (i2: I2) => I,
-    g: (a: A) => A2
-  ): StatefulStream<I2, S, A2> {
-    return this.dimap(f, g);
-  };
-
-  StatefulStream.prototype.lmap = function<I, S, A, I2>(
-    this: StatefulStream<I, S, A>,
-    f: (i2: I2) => I
-  ): StatefulStream<I2, S, A> {
-    return this.lmap(f);
-  };
-
-  StatefulStream.prototype.rmap = function<I, S, A, A2>(
-    this: StatefulStream<I, S, A>,
-    g: (a: A) => A2
-  ): StatefulStream<I, S, A2> {
-    return this.rmap(g);
-  };
-
-  console.log('✅ StatefulStream augmented with fluent methods');
+  // No-op: StatefulStream now exposes fluent methods via its class definition.
+  console.log('ℹ️ StatefulStream fluent methods are provided by the class; no augmentation performed');
 }
 
 // ============================================================================

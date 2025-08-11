@@ -480,7 +480,9 @@ function createMapFilterFusion(source: ts.Expression, target: ts.Expression): ts
       ts.factory.createCallExpression(filterFn, undefined, [
         ts.factory.createCallExpression(mapFn, undefined, [ts.factory.createIdentifier('x')])
       ]),
+      ts.factory.createToken(ts.SyntaxKind.QuestionToken),
       ts.factory.createCallExpression(mapFn, undefined, [ts.factory.createIdentifier('x')]),
+      ts.factory.createToken(ts.SyntaxKind.ColonToken),
       ts.factory.createIdentifier('undefined')
     )
   );
@@ -504,7 +506,9 @@ function createFilterMapFusion(source: ts.Expression, target: ts.Expression): ts
     undefined,
     ts.factory.createConditionalExpression(
       ts.factory.createCallExpression(filterFn, undefined, [ts.factory.createIdentifier('x')]),
+      ts.factory.createToken(ts.SyntaxKind.QuestionToken),
       ts.factory.createCallExpression(mapFn, undefined, [ts.factory.createIdentifier('x')]),
+      ts.factory.createToken(ts.SyntaxKind.ColonToken),
       ts.factory.createIdentifier('undefined')
     )
   );
@@ -568,38 +572,108 @@ function createScanMapFusion(source: ts.Expression, target: ts.Expression): ts.E
 
 // Additional fusion transformers...
 function createMapReduceFusion(source: ts.Expression, target: ts.Expression): ts.Expression {
-  // Implementation similar to map-scan fusion
-  return source;
+  const mapFn = extractFunctionFromCall(source);
+  const reduceFn = extractFunctionFromCall(target);
+  const combined = ts.factory.createArrowFunction(
+    undefined, undefined,
+    [
+      ts.factory.createParameterDeclaration(undefined, undefined, 'acc'),
+      ts.factory.createParameterDeclaration(undefined, undefined, 'x')
+    ],
+    undefined, undefined,
+    ts.factory.createCallExpression(reduceFn, undefined, [
+      ts.factory.createIdentifier('acc'),
+      ts.factory.createCallExpression(mapFn, undefined, [ts.factory.createIdentifier('x')])
+    ])
+  );
+  return createFusedOperatorCall(extractObjectFromCall(source), 'reduce', [combined]);
 }
 
 function createFilterScanFusion(source: ts.Expression, target: ts.Expression): ts.Expression {
-  // Implementation similar to filter-scan fusion
-  return source;
+  const filterFn = extractFunctionFromCall(source);
+  const scanFn = extractFunctionFromCall(target);
+  const combined = ts.factory.createArrowFunction(
+    undefined, undefined,
+    [
+      ts.factory.createParameterDeclaration(undefined, undefined, 'acc'),
+      ts.factory.createParameterDeclaration(undefined, undefined, 'x')
+    ],
+    undefined, undefined,
+    ts.factory.createConditionalExpression(
+      ts.factory.createCallExpression(filterFn, undefined, [ts.factory.createIdentifier('x')]),
+      ts.factory.createToken(ts.SyntaxKind.QuestionToken),
+      ts.factory.createCallExpression(scanFn, undefined, [
+        ts.factory.createIdentifier('acc'),
+        ts.factory.createIdentifier('x')
+      ]),
+      ts.factory.createToken(ts.SyntaxKind.ColonToken),
+      ts.factory.createIdentifier('acc')
+    )
+  );
+  return createFusedOperatorCall(extractObjectFromCall(source), 'scan', [combined]);
 }
 
 function createReduceMapFusion(source: ts.Expression, target: ts.Expression): ts.Expression {
-  // Implementation similar to scan-map fusion
-  return source;
+  const reduceFn = extractFunctionFromCall(source);
+  const mapFn = extractFunctionFromCall(target);
+  const combined = ts.factory.createArrowFunction(
+    undefined, undefined,
+    [
+      ts.factory.createParameterDeclaration(undefined, undefined, 'acc'),
+      ts.factory.createParameterDeclaration(undefined, undefined, 'x')
+    ],
+    undefined, undefined,
+    ts.factory.createCallExpression(mapFn, undefined, [
+      ts.factory.createCallExpression(reduceFn, undefined, [
+        ts.factory.createIdentifier('acc'),
+        ts.factory.createIdentifier('x')
+      ])
+    ])
+  );
+  return createFusedOperatorCall(extractObjectFromCall(source), 'reduce', [combined]);
 }
 
 function createTakeMapFusion(source: ts.Expression, target: ts.Expression): ts.Expression {
-  // Implementation for take-map fusion
-  return source;
+  const n = (ts.isCallExpression(source) && source.arguments[0]) || ts.factory.createNumericLiteral('0');
+  const mapFn = extractFunctionFromCall(target);
+  return createFusedOperatorCall(extractObjectFromCall(source), 'takeMap', [n as ts.Expression, mapFn]);
 }
 
 function createTakeFilterFusion(source: ts.Expression, target: ts.Expression): ts.Expression {
-  // Implementation for take-filter fusion
-  return source;
+  const n = (ts.isCallExpression(source) && source.arguments[0]) || ts.factory.createNumericLiteral('0');
+  const filterFn = extractFunctionFromCall(target);
+  // If runtime supports takeFilter, use it; fallback could be take(n) then filter
+  return createFusedOperatorCall(extractObjectFromCall(source), 'takeFilter', [n as ts.Expression, filterFn]);
 }
 
 function createDropMapFusion(source: ts.Expression, target: ts.Expression): ts.Expression {
-  // Implementation for drop-map fusion
-  return source;
+  const n = (ts.isCallExpression(source) && source.arguments[0]) || ts.factory.createNumericLiteral('0');
+  const mapFn = extractFunctionFromCall(target);
+  return createFusedOperatorCall(extractObjectFromCall(source), 'dropMap', [n as ts.Expression, mapFn]);
 }
 
 function createScanFilterFusion(source: ts.Expression, target: ts.Expression): ts.Expression {
-  // Implementation for scan-filter fusion
-  return source;
+  const scanFn = extractFunctionFromCall(source);
+  const filterFn = extractFunctionFromCall(target);
+  const combined = ts.factory.createArrowFunction(
+    undefined, undefined,
+    [
+      ts.factory.createParameterDeclaration(undefined, undefined, 'acc'),
+      ts.factory.createParameterDeclaration(undefined, undefined, 'x')
+    ],
+    undefined, undefined,
+    ts.factory.createConditionalExpression(
+      ts.factory.createCallExpression(filterFn, undefined, [ts.factory.createIdentifier('x')]),
+      ts.factory.createToken(ts.SyntaxKind.QuestionToken),
+      ts.factory.createCallExpression(scanFn, undefined, [
+        ts.factory.createIdentifier('acc'),
+        ts.factory.createIdentifier('x')
+      ]),
+      ts.factory.createToken(ts.SyntaxKind.ColonToken),
+      ts.factory.createIdentifier('acc')
+    )
+  );
+  return createFusedOperatorCall(extractObjectFromCall(source), 'scan', [combined]);
 }
 
 // ============================================================================
@@ -609,22 +683,11 @@ function createScanFilterFusion(source: ts.Expression, target: ts.Expression): t
 /**
  * Extract function from a call expression
  */
-function extractFunctionFromCall(call: ts.Expression): ts.Expression {
-  if (ts.isCallExpression(call) && call.arguments.length > 0) {
-    return call.arguments[0];
-  }
-  throw new Error('Cannot extract function from call expression');
-}
+import { extractFunctionFromCall, extractObjectFromCall } from './fusionUtils';
 
 /**
  * Extract object from a call expression
  */
-function extractObjectFromCall(call: ts.Expression): ts.Expression {
-  if (ts.isCallExpression(call) && ts.isPropertyAccessExpression(call.expression)) {
-    return call.expression.expression;
-  }
-  throw new Error('Cannot extract object from call expression');
-}
 
 /**
  * Create a fused operator call

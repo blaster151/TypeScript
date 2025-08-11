@@ -90,6 +90,43 @@ export interface Operation {
 }
 
 /**
+ * Apply an operation to a collection with correct semantics per operation kind.
+ * - map: element -> element
+ * - filter: element -> boolean
+ * - filterMap: element -> element | undefined (undefined drops)
+ * - chain/flatMap: element -> collection (flatten one level)
+ */
+function applyOperation(collection: any[], op: Operation): any[] {
+  switch (op.type) {
+    case 'map':
+      return collection.map(op.fn);
+    case 'filter':
+      return collection.filter(op.fn);
+    case 'filterMap': {
+      const out: any[] = [];
+      for (const item of collection) {
+        const mapped = op.fn(item);
+        if (mapped !== undefined) out.push(mapped);
+      }
+      return out;
+    }
+    case 'chain':
+    case 'flatMap': {
+      const out: any[] = [];
+      for (const item of collection) {
+        const inner = op.fn(item);
+        if (Array.isArray(inner)) out.push(...inner);
+        else if (inner !== undefined && inner !== null) out.push(inner);
+      }
+      return out;
+    }
+    default:
+      // Fallback: treat as element transform
+      return collection.map(op.fn);
+  }
+}
+
+/**
  * Optimization hook for typeclass instances
  */
 export interface OptimizationHook {
@@ -309,7 +346,7 @@ export const mapFilterFusion: FusionRule = {
     const [mapOp, filterOp] = ops;
     const filterMapFn = (x: any) => {
       const mapped = mapOp.fn(x);
-      return filterOp.fn(mapped) ? mapped : null;
+      return filterOp.fn(mapped) ? mapped : undefined;
     };
     
     return {
@@ -360,39 +397,8 @@ export const filterFilterFusion: FusionRule = {
   performanceGain: 0.2
 };
 
-/**
- * Chain-Map fusion: chain(f) >> map(g) = chain(x => map(g, f(x)))
- */
-export const chainMapFusion: FusionRule = {
-  name: 'chainMapFusion',
-  description: 'Fuse chain followed by map into a single chain operation',
-  applicable: (ops: Operation[]) => {
-    if (ops.length < 2) return false;
-    return ops[0].type === 'chain' && ops[1].type === 'map';
-  },
-  fuse: (ops: Operation[]) => {
-    const [chainOp, mapOp] = ops;
-    const fusedFn = (x: any) => {
-      const chained = chainOp.fn(x);
-      return mapOp.fn(chained);
-    };
-    
-    return {
-      type: 'chain',
-      fn: fusedFn,
-      metadata: {
-        isPure: chainOp.metadata.isPure && mapOp.metadata.isPure,
-        hasSideEffects: chainOp.metadata.hasSideEffects || mapOp.metadata.hasSideEffects,
-        complexity: Math.max(chainOp.metadata.complexity, mapOp.metadata.complexity),
-        allocationCost: chainOp.metadata.allocationCost + mapOp.metadata.allocationCost
-      },
-      dependencies: [...chainOp.dependencies, ...mapOp.dependencies],
-      outputType: mapOp.outputType
-    };
-  },
-  preservesSemantics: true,
-  performanceGain: 0.3
-};
+// Note: chain-map fusion requires f to return a collection (flatMap semantics).
+// Without enforcing that contract across sources, this rule is disabled to avoid incorrect behavior.
 
 // ============================================================================
 // Built-in Optimization Hooks
@@ -414,7 +420,7 @@ export const lazyOptimizationHook: OptimizationHook = {
     let memoryReduction = 0;
     
     // Apply fusion rules
-    const fusionRules = [mapMapFusion, mapFilterFusion, filterFilterFusion, chainMapFusion];
+    const fusionRules = [mapMapFusion, mapFilterFusion, filterFilterFusion];
     
     for (const rule of fusionRules) {
       let changed = false;
@@ -754,7 +760,7 @@ export function createOptimizationMetadata(
   return {
     evaluationMode,
     canFuse: true,
-    fusionRules: [mapMapFusion, mapFilterFusion, filterFilterFusion, chainMapFusion],
+    fusionRules: [mapMapFusion, mapFilterFusion, filterFilterFusion],
     optimizationHooks: evaluationMode === 'Lazy' ? [lazyOptimizationHook] : [eagerOptimizationHook],
     performanceProfile
   };
@@ -1106,38 +1112,38 @@ export function benchmarkOptimization(
   
   // Benchmark unoptimized pipeline
   const unoptimizedStart = performance.now();
-  const unoptimizedMemory = performance.memory?.usedJSHeapSize || 0;
+  const unoptimizedMemory = ((globalThis as any).performance?.memory?.usedJSHeapSize) || 0;
   
   for (let i = 0; i < iterations; i++) {
     // Simulate pipeline execution
     let result = testData;
     for (const op of pipeline) {
-      result = result.map(op.fn);
+      result = applyOperation(result, op);
     }
   }
   
   const unoptimizedEnd = performance.now();
   const unoptimizedTime = unoptimizedEnd - unoptimizedStart;
-  const unoptimizedMemoryUsed = (performance.memory?.usedJSHeapSize || 0) - unoptimizedMemory;
+  const unoptimizedMemoryUsed = (((globalThis as any).performance?.memory?.usedJSHeapSize) || 0) - unoptimizedMemory;
   
   // Optimize pipeline
   const optimizationResult = optimizePipeline(adtName, typeclass, pipeline, context);
   
   // Benchmark optimized pipeline
   const optimizedStart = performance.now();
-  const optimizedMemory = performance.memory?.usedJSHeapSize || 0;
+  const optimizedMemory = (((globalThis as any).performance?.memory?.usedJSHeapSize) || 0);
   
   for (let i = 0; i < iterations; i++) {
     // Simulate optimized pipeline execution
     let result = testData;
     for (const op of optimizationResult.pipeline) {
-      result = result.map(op.fn);
+      result = applyOperation(result, op);
     }
   }
   
   const optimizedEnd = performance.now();
   const optimizedTime = optimizedEnd - optimizedStart;
-  const optimizedMemoryUsed = (performance.memory?.usedJSHeapSize || 0) - optimizedMemory;
+  const optimizedMemoryUsed = ((((globalThis as any).performance?.memory?.usedJSHeapSize) || 0) - optimizedMemory);
   
   return {
     unoptimized: { time: unoptimizedTime, memory: unoptimizedMemoryUsed },
@@ -1171,14 +1177,14 @@ export function verifyOptimizationCorrectness(
   // Execute unoptimized pipeline
   let unoptimizedResult = testData;
   for (const op of pipeline) {
-    unoptimizedResult = unoptimizedResult.map(op.fn);
+    unoptimizedResult = applyOperation(unoptimizedResult, op);
   }
   
   // Execute optimized pipeline
   const optimizationResult = optimizePipeline(adtName, typeclass, pipeline, context);
   let optimizedResult = testData;
   for (const op of optimizationResult.pipeline) {
-    optimizedResult = optimizedResult.map(op.fn);
+    optimizedResult = applyOperation(optimizedResult, op);
   }
   
   // Compare results

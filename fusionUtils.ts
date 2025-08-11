@@ -11,6 +11,19 @@ import * as ts from 'typescript';
 // Core Fusion Functions
 // ============================================================================
 
+// Tiny AST utilities (drop-in)
+export const qToken = () => ts.factory.createToken(ts.SyntaxKind.QuestionToken);
+export const cToken = () => ts.factory.createToken(ts.SyntaxKind.ColonToken);
+
+export const and = (l: ts.Expression, r: ts.Expression) =>
+  ts.factory.createBinaryExpression(l, ts.SyntaxKind.AmpersandAmpersandToken as any, r);
+
+export const or = (l: ts.Expression, r: ts.Expression) =>
+  ts.factory.createBinaryExpression(l, ts.SyntaxKind.BarBarToken as any, r);
+
+export const cond = (test: ts.Expression, whenTrue: ts.Expression, whenFalse: ts.Expression) =>
+  ts.factory.createConditionalExpression(test, qToken(), whenTrue, cToken(), whenFalse);
+
 /**
  * Fuse two map operations: map(f) ∘ map(g) = map(f ∘ g)
  */
@@ -47,7 +60,7 @@ export function fuseMapFilter(source: ts.Expression, target: ts.Expression): ts.
     [ts.factory.createParameterDeclaration(undefined, undefined, 'x', undefined, undefined, undefined)],
     undefined,
     undefined,
-    ts.factory.createConditionalExpression(
+    cond(
       ts.factory.createCallExpression(filterFn, undefined, [
         ts.factory.createCallExpression(mapFn, undefined, [ts.factory.createIdentifier('x')])
       ]),
@@ -73,7 +86,7 @@ export function fuseFilterMap(source: ts.Expression, target: ts.Expression): ts.
     [ts.factory.createParameterDeclaration(undefined, undefined, 'x', undefined, undefined, undefined)],
     undefined,
     undefined,
-    ts.factory.createConditionalExpression(
+    cond(
       ts.factory.createCallExpression(filterFn, undefined, [ts.factory.createIdentifier('x')]),
       ts.factory.createCallExpression(mapFn, undefined, [ts.factory.createIdentifier('x')]),
       ts.factory.createIdentifier('undefined')
@@ -97,8 +110,9 @@ export function fuseFilterFilter(source: ts.Expression, target: ts.Expression): 
     [ts.factory.createParameterDeclaration(undefined, undefined, 'x', undefined, undefined, undefined)],
     undefined,
     undefined,
-    ts.factory.createLogicalAnd(
+    ts.factory.createBinaryExpression(
       ts.factory.createCallExpression(filter1Fn, undefined, [ts.factory.createIdentifier('x')]),
+      ts.factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
       ts.factory.createCallExpression(filter2Fn, undefined, [ts.factory.createIdentifier('x')])
     )
   );
@@ -108,6 +122,7 @@ export function fuseFilterFilter(source: ts.Expression, target: ts.Expression): 
 
 /**
  * Fuse map and scan: map(f) ∘ scan(g) = scan((acc, x) => g(acc, f(x)))
+ * Note: we emit a standard .scan with the combined reducer (no custom scanMap op).
  */
 export function fuseMapScan(source: ts.Expression, target: ts.Expression): ts.Expression {
   const mapFn = extractFunctionFromCall(source);
@@ -133,7 +148,8 @@ export function fuseMapScan(source: ts.Expression, target: ts.Expression): ts.Ex
 }
 
 /**
- * Fuse scan and map: scan(f) ∘ map(g) = scanMap(f, g)
+ * Fuse scan and map: scan(f) ∘ map(g) = scan(x) then map(g) folded into a combined scan reducer.
+ * Note: we emit .scan with (acc, x) => g(scan(acc, x)) (no custom scanMap op).
  */
 export function fuseScanMap(source: ts.Expression, target: ts.Expression): ts.Expression {
   const scanFn = extractFunctionFromCall(source);
@@ -247,26 +263,8 @@ export function fuseFlatMapMap(source: ts.Expression, target: ts.Expression): ts
 export function fuseTakeMap(source: ts.Expression, target: ts.Expression): ts.Expression {
   const takeCount = extractNumericLiteralFromCall(source);
   const mapFn = extractFunctionFromCall(target);
-  
-  // Create combined function: (x) => takeCount > 0 ? mapFn(x) : undefined
-  const combinedFn = ts.factory.createArrowFunction(
-    undefined,
-    undefined,
-    [ts.factory.createParameterDeclaration(undefined, undefined, 'x', undefined, undefined, undefined)],
-    undefined,
-    undefined,
-    ts.factory.createConditionalExpression(
-      ts.factory.createBinaryExpression(
-        ts.factory.createIdentifier('_takeCount'),
-        ts.factory.createToken(ts.SyntaxKind.GreaterThanToken),
-        ts.factory.createNumericLiteral('0')
-      ),
-      ts.factory.createCallExpression(mapFn, undefined, [ts.factory.createIdentifier('x')]),
-      ts.factory.createIdentifier('undefined')
-    )
-  );
-  
-  return createFusedOperatorCall(extractObjectFromCall(source), 'takeMap', [combinedFn, takeCount]);
+  // Build takeMap(n, f) call; no free var capture in lambda
+  return createFusedOperatorCall(extractObjectFromCall(source), 'takeMap', [takeCount, mapFn]);
 }
 
 /**
@@ -275,26 +273,8 @@ export function fuseTakeMap(source: ts.Expression, target: ts.Expression): ts.Ex
 export function fuseDropMap(source: ts.Expression, target: ts.Expression): ts.Expression {
   const dropCount = extractNumericLiteralFromCall(source);
   const mapFn = extractFunctionFromCall(target);
-  
-  // Create combined function: (x) => _dropCount > 0 ? undefined : mapFn(x)
-  const combinedFn = ts.factory.createArrowFunction(
-    undefined,
-    undefined,
-    [ts.factory.createParameterDeclaration(undefined, undefined, 'x', undefined, undefined, undefined)],
-    undefined,
-    undefined,
-    ts.factory.createConditionalExpression(
-      ts.factory.createBinaryExpression(
-        ts.factory.createIdentifier('_dropCount'),
-        ts.factory.createToken(ts.SyntaxKind.GreaterThanToken),
-        ts.factory.createNumericLiteral('0')
-      ),
-      ts.factory.createIdentifier('undefined'),
-      ts.factory.createCallExpression(mapFn, undefined, [ts.factory.createIdentifier('x')])
-    )
-  );
-  
-  return createFusedOperatorCall(extractObjectFromCall(source), 'dropMap', [combinedFn, dropCount]);
+  // Build dropMap(n, f) call; no free var capture in lambda
+  return createFusedOperatorCall(extractObjectFromCall(source), 'dropMap', [dropCount, mapFn]);
 }
 
 /**
@@ -331,17 +311,9 @@ export function fuseMapToMap(source: ts.Expression, target: ts.Expression): ts.E
   const mapToValue = extractValueFromCall(source);
   const mapFn = extractFunctionFromCall(target);
   
-  // Create combined function: () => mapFn(mapToValue)
-  const combinedFn = ts.factory.createArrowFunction(
-    undefined,
-    undefined,
-    [],
-    undefined,
-    undefined,
-    ts.factory.createCallExpression(mapFn, undefined, [mapToValue])
-  );
-  
-  return createFusedOperatorCall(extractObjectFromCall(source), 'mapTo', [combinedFn]);
+  // Compute value expression f(v) and pass directly to mapTo
+  const valueExpr = ts.factory.createCallExpression(mapFn, undefined, [mapToValue]);
+  return createFusedOperatorCall(extractObjectFromCall(source), 'mapTo', [valueExpr]);
 }
 
 // ============================================================================
@@ -409,9 +381,12 @@ export function createFlatMapMap(flatMapFn: ts.Expression, mapFn: ts.Expression)
 /**
  * Extract function from a call expression
  */
-export function extractFunctionFromCall(call: ts.Expression): ts.Expression {
+export function extractFunctionFromCall(call: ts.Expression): ts.ArrowFunction | ts.FunctionExpression | ts.Identifier {
   if (ts.isCallExpression(call) && call.arguments.length > 0) {
-    return call.arguments[0];
+    const arg = call.arguments[0];
+    if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg) || ts.isIdentifier(arg)) {
+      return arg;
+    }
   }
   throw new Error('Cannot extract function from call expression');
 }
@@ -429,7 +404,7 @@ export function extractObjectFromCall(call: ts.Expression): ts.Expression {
 /**
  * Extract numeric literal from a call expression
  */
-export function extractNumericLiteralFromCall(call: ts.Expression): ts.Expression {
+export function extractNumericLiteralFromCall(call: ts.Expression): ts.NumericLiteral {
   if (ts.isCallExpression(call) && call.arguments.length > 0) {
     const arg = call.arguments[0];
     if (ts.isNumericLiteral(arg)) {
@@ -489,7 +464,7 @@ export function isNumericLiteral(expr: ts.Expression): boolean {
 export function isSimpleValue(expr: ts.Expression): boolean {
   return ts.isNumericLiteral(expr) || 
          ts.isStringLiteral(expr) || 
-         ts.isBooleanLiteral(expr) || 
+         (expr.kind === ts.SyntaxKind.TrueKeyword || expr.kind === ts.SyntaxKind.FalseKeyword) || 
          ts.isIdentifier(expr);
 }
 
@@ -499,7 +474,9 @@ export function isSimpleValue(expr: ts.Expression): boolean {
 export function createConditionalFilter(predicate: ts.Expression, value: ts.Expression): ts.Expression {
   return ts.factory.createConditionalExpression(
     predicate,
+    ts.factory.createToken(ts.SyntaxKind.QuestionToken),
     value,
+    ts.factory.createToken(ts.SyntaxKind.ColonToken),
     ts.factory.createIdentifier('undefined')
   );
 }
@@ -508,24 +485,26 @@ export function createConditionalFilter(predicate: ts.Expression, value: ts.Expr
  * Create a logical AND expression for conjoined filters
  */
 export function createLogicalAnd(left: ts.Expression, right: ts.Expression): ts.Expression {
-  return ts.factory.createLogicalAnd(left, right);
+  return ts.factory.createBinaryExpression(left, ts.factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken), right);
 }
 
 /**
  * Create a logical OR expression for disjoined filters
  */
 export function createLogicalOr(left: ts.Expression, right: ts.Expression): ts.Expression {
-  return ts.factory.createLogicalOr(left, right);
+  return ts.factory.createBinaryExpression(left, ts.factory.createToken(ts.SyntaxKind.BarBarToken), right);
 }
 
 /**
  * Create a block statement for side effects
  */
 export function createBlockWithSideEffect(sideEffect: ts.Expression, result: ts.Expression): ts.Expression {
-  return ts.factory.createBlock([
-    ts.factory.createExpressionStatement(sideEffect),
-    ts.factory.createReturnStatement(result)
-  ]);
+  return ts.factory.createParenthesizedExpression(
+    ts.factory.createCommaListExpression([
+      ts.factory.createCallExpression(ts.factory.createParenthesizedExpression(sideEffect) as any, undefined, []),
+      result
+    ])
+  );
 }
 
 // ============================================================================
@@ -587,8 +566,9 @@ export function fuseMultipleFilters(expressions: ts.Expression[]): ts.Expression
       [ts.factory.createParameterDeclaration(undefined, undefined, 'x', undefined, undefined, undefined)],
       undefined,
       undefined,
-      ts.factory.createLogicalAnd(
+      ts.factory.createBinaryExpression(
         ts.factory.createCallExpression(conjoinedPredicate, undefined, [ts.factory.createIdentifier('x')]),
+        ts.factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
         ts.factory.createCallExpression(currentPredicate, undefined, [ts.factory.createIdentifier('x')])
       )
     );
