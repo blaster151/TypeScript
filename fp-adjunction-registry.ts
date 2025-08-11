@@ -43,6 +43,10 @@ export function registerFreeAdjunction<F extends Kind1, A>(
   const monadLawRes = runMonadLaws(derived.monad as any, gens.genA, gens.genFA, () => (a: any) => derived.monad.of(a) as any, () => (b: any) => derived.monad.of(b) as any, gens.eqFA, gens.eqFC, 20);
   reportLawDiagnostics('Monad from Free adjunction', monadLawRes as any);
   GLOBAL_ADJUNCTIONS.push({ type: 'Free', adjunction: A, monad: derived });
+
+  // Auto-register derived instances in global FP registry
+  const idFunctor: Functor<any> = { map: (x: any, _f: any) => x } as any;
+  registerDerivedFromAdjunction('Free', 'U', A as any, cfg.functor as any, idFunctor);
 }
 
 // Register Cofree adjunction and derived Comonad
@@ -60,6 +64,10 @@ export function registerCofreeAdjunction<F extends Kind1>(
   const derived = comonadFromAdjunction(A as any, cfg.functor as any, { map: (x: any, f: any) => x } as any);
   // Basic comonad sanity (extract/extend) not shown; wire via a Comonad laws runner if added later
   GLOBAL_ADJUNCTIONS.push({ type: 'Cofree', adjunction: A, comonad: derived });
+
+  // Auto-register derived instances in global FP registry
+  const idFunctor: Functor<any> = { map: (x: any, _f: any) => x } as any;
+  registerDerivedFromAdjunction('U', 'Cofree', A as any, idFunctor, cfg.functor as any);
 }
 
 export function getRegisteredAdjunctions() { return GLOBAL_ADJUNCTIONS.slice(); }
