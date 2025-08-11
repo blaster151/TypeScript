@@ -216,6 +216,8 @@ import {
     visitNodes,
     VisitResult,
 } from "../_namespaces/ts.js";
+import { buildKindExportMeta, emitKindSideTable, toCachedKindInfo, defaultKindCache, normalizeDeclForHashing } from "../kindCache.js";
+import { VarianceTag } from "../../fp-hkt.js";
 
 /** @internal */
 export function getDeclarationDiagnostics(
@@ -536,7 +538,126 @@ export function transformDeclarations(context: TransformationContext): Transform
             }
         }
         const outputFilePath = getDirectoryPath(normalizeSlashes(getOutputPathsFor(node, host, /*forceDtsPaths*/ true).declarationFilePath!));
-        return factory.updateSourceFile(node, combinedStatements, /*isDeclarationFile*/ true, getReferencedFiles(outputFilePath), getTypeReferences(), node.hasNoDefaultLib, getLibReferences());
+        const updatedSf = factory.updateSourceFile(node, combinedStatements, /*isDeclarationFile*/ true, getReferencedFiles(outputFilePath), getTypeReferences(), node.hasNoDefaultLib, getLibReferences());
+
+        // Minimal hook: emit kind side-table if enabled
+        try {
+            const opts: any = options as any;
+            const emitKinds = opts.emitKindTables ?? true;
+            if (emitKinds) {
+                const exports: any[] = [];
+                // Heuristic: gather top-level type aliases and interfaces as candidate kinds
+                for (const stmt of node.statements as readonly Statement[]) {
+                    if (isTypeAliasDeclaration(stmt) || isInterfaceDeclaration(stmt)) {
+                        const name = stmt.name.text;
+                        const arity = stmt.typeParameters?.length ?? 0;
+                        // Variance detection heuristic + @variance override
+                        const variance: VarianceTag[] = inferVarianceFromJSDoc(stmt, arity) ?? inferVarianceHeuristically(stmt, arity);
+                        const normalized = normalizeDeclForHashing(getTextOfNode(stmt));
+                        const deps = collectTypeReferenceDeps(stmt);
+                        const meta = buildKindExportMeta({
+                            modulePath: node.fileName,
+                            exportName: name,
+                            arity,
+                            variance,
+                            roles: undefined,
+                            constraints: undefined,
+                            normalizedDeclText: normalized,
+                            precision: 'Heuristic',
+                            fixedArgs: undefined,
+                            deps
+                        });
+                        exports.push(meta);
+                        // populate cache for quick reuse
+                        const cached = toCachedKindInfo(node.fileName, meta);
+                        defaultKindCache.put(cached);
+                    }
+                }
+                if (exports.length) {
+                    emitKindSideTable(node.fileName, { modulePath: node.fileName, version: 1, exports });
+                }
+            }
+        } catch {
+            // best effort
+        }
+
+        return updatedSf;
+
+        // --- helpers ---
+        function parseVarianceTag(text: string): VarianceTag | undefined {
+            switch (text.trim().toLowerCase()) {
+                case 'out': return 'Out';
+                case 'in': return 'In';
+                case 'phantom': return 'Phantom';
+                case 'invariant': return 'Invariant';
+                default: return undefined;
+            }
+        }
+
+        function inferVarianceFromJSDoc(stmt: Node, arity: number): VarianceTag[] | undefined {
+            const jsDocs = (stmt as any).jsDoc as readonly any[] | undefined;
+            if (!jsDocs || !jsDocs.length) return undefined;
+            for (const doc of jsDocs) {
+                const tags: readonly any[] | undefined = doc.tags;
+                if (!tags) continue;
+                for (const tag of tags) {
+                    if (tag.tagName?.escapedText === 'variance') {
+                        const text = (tag.comment || '').toString();
+                        const parts = text.replace(/[<>]/g, '').split(',');
+                        const vs: VarianceTag[] = [];
+                        for (let i = 0; i < arity; i++) {
+                            const p = parts[i]?.trim();
+                            vs.push(parseVarianceTag(p || '') ?? 'Invariant');
+                        }
+                        return vs;
+                    }
+                }
+            }
+            return undefined;
+        }
+
+        function inferVarianceHeuristically(stmt: Node, arity: number): VarianceTag[] {
+            // Simple heuristic over the declaration text: appearances near function parameter vs return contexts
+            const text = getTextOfNode(stmt);
+            // default to Invariant
+            const result: VarianceTag[] = new Array(arity).fill('Invariant');
+            if (!('typeParameters' in stmt) || !(stmt as any).typeParameters) return result;
+            const tps = (stmt as any).typeParameters as readonly any[];
+            for (let index = 0; index < Math.min(arity, tps.length); index++) {
+                const tpName = tps[index].name?.escapedText?.toString() ?? `T${index}`;
+                const namePattern = new RegExp(`\b${tpName}\b`, 'g');
+                let outCount = 0, inCount = 0;
+                // crude approximations
+                // - after ':' or '=>' in function-like return types => Out
+                // - inside parameter list parentheses => In
+                const matches = [...text.matchAll(namePattern)];
+                for (const m of matches) {
+                    const before = text.slice(Math.max(0, m.index! - 8), m.index!);
+                    const after = text.slice(m.index! + tpName.length, m.index! + tpName.length + 8);
+                    if (/[:=]>/.test(before)) outCount++;
+                    if (/[(,]\s*$/.test(before) || /^\s*[,)]/.test(after)) inCount++;
+                }
+                if (outCount && !inCount) result[index] = 'Out';
+                else if (inCount && !outCount) result[index] = 'In';
+                else if (!outCount && !inCount) result[index] = 'Phantom';
+                else result[index] = 'Invariant';
+            }
+            return result;
+        }
+
+        function collectTypeReferenceDeps(stmt: Node): string[] {
+            // Collect referenced type names for dependency hints; a real impl would use the checker
+            const text = getTextOfNode(stmt);
+            const deps = new Set<string>();
+            // crude: capture Identifier<...> occurrences
+            const re = /\b([A-Z][A-Za-z0-9_]+)\s*</g;
+            let m: RegExpExecArray | null;
+            while ((m = re.exec(text))) {
+                const name = m[1];
+                if (name !== (stmt as any).name?.escapedText) deps.add(name);
+            }
+            return Array.from(deps);
+        }
 
         function collectFileReferences(sourceFile: SourceFile) {
             rawReferencedFiles = concatenate(rawReferencedFiles, map(sourceFile.referencedFiles, f => [sourceFile, f]));

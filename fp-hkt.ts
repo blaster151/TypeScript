@@ -196,6 +196,69 @@ export interface Kind3 extends Kind<[Type, Type, Type]> {
 }
 
 // ============================================================================
+// Variance Tags and Kind Metadata
+// ============================================================================
+
+/** Variance direction for type parameters */
+export type VarianceTag = 'Out' | 'In' | 'Phantom' | 'Invariant';
+
+export type Out = { readonly _v: 'Out' };
+export type In = { readonly _v: 'In' };
+export type Ph = { readonly _v: 'Phantom' };
+export type Iv = { readonly _v: 'Invariant' };
+
+/** Metadata about a kind: arity and variance for each parameter */
+export interface KindInfo {
+  readonly arity: number;
+  readonly variance: ReadonlyArray<VarianceTag>;
+}
+
+/**
+ * Type-level variance lookup for known kinds. Defaults to Invariant for safety.
+ */
+export type VarianceOf<F extends Kind<any>> =
+  // Unary
+  F extends ArrayK | MaybeK | PromiseK | SetK | ListK | ObservableLiteK
+    ? ['Out']
+    : // Binary known
+    F extends FunctionK
+      ? ['In', 'Out']
+      : F extends ReaderK
+        ? ['In', 'Out']
+        : F extends WriterK
+          ? ['Out', 'Out']
+          : F extends StateK
+            ? ['In', 'Out']
+            : F extends EitherK | TupleK | TaskEitherK
+              ? ['Out', 'Out']
+              : F extends MapK
+                ? ['Invariant', 'Out']
+                : // Fallback: invariant for all parameters
+                F extends Kind<infer Args>
+                  ? { [K in keyof Args]: 'Invariant' } & ReadonlyArray<VarianceTag>
+                  : ReadonlyArray<VarianceTag>;
+
+/** Utility: ensure the last parameter of F is covariant (Out) */
+export type RequireCovariantLast<F extends Kind<any>> =
+  VarianceOf<F> extends [...infer _Init, infer Last]
+    ? Last extends 'Out' ? F : never
+    : never;
+
+/** Utility: ensure the first parameter of F is contravariant (In) */
+export type RequireContravariantFirst<F extends Kind<any>> =
+  VarianceOf<F> extends [infer First, ...infer _Rest]
+    ? First extends 'In' ? F : never
+    : never;
+
+/** Extract tail (all but first) of variance array */
+export type ExtractTailVarianceOf<F extends Kind<any>> =
+  VarianceOf<F> extends [any, ...infer Tail] ? Tail : [];
+
+/** Extract head (first) of variance array */
+export type ExtractHeadVarianceOf<F extends Kind<any>> =
+  VarianceOf<F> extends [infer Head, ...any[]] ? Head : never;
+
+// ============================================================================
 // Higher-Order Kind Shorthands
 // ============================================================================
 
@@ -225,6 +288,49 @@ export interface HOK1to2<In extends Kind1, Out extends Kind2> extends HigherKind
  */
 export interface HOK2to1<In extends Kind2, Out extends Kind1> extends HigherKind<In, Out> {
   readonly __arity: '2to1';
+}
+
+// ============================================================================
+// Partial Application Helpers for Higher Arity Kinds
+// ============================================================================
+
+/** Fix the left parameter of a binary kind, yielding a unary kind */
+export interface Fix2Left<F extends Kind2, E> extends Kind1 {
+  readonly type: Apply<F, [E, this['arg0']]>;
+}
+
+/** Fix the right parameter of a binary kind, yielding a unary kind */
+export interface Fix2Right<F extends Kind2, A> extends Kind1 {
+  readonly type: Apply<F, [this['arg0'], A]>;
+}
+
+/**
+ * Curry a binary kind into a unary kind that produces another unary kind.
+ * This is a type-level helper for expressing partial application ergonomically.
+ */
+export interface CurryKind2<F extends Kind2> extends Kind1 {
+  readonly type: {
+    <E>(): { new <A>(): Apply<F, [E, A]> };
+  };
+}
+
+/** Uncurry two unary applications into a single binary kind application */
+export type UncurryKind2<F extends Kind2, E, A> = Apply<F, [E, A]>;
+
+/** Type-level aliases */
+export type ApplyLeft<F extends Kind2, E> = Fix2Left<F, E>;
+export type ApplyRight<F extends Kind2, A> = Fix2Right<F, A>;
+
+/**
+ * Minimal runtime factory to attach metadata for partial applications so registries can inspect variance.
+ * Note: Runtime cannot infer types; pass variance explicitly if desired.
+ */
+export function makeApplyLeftMeta(baseId: string, varianceTail?: ReadonlyArray<VarianceTag>): {
+  readonly __kind: 'ApplyLeft';
+  readonly base: string;
+  readonly variance?: ReadonlyArray<VarianceTag>;
+} {
+  return { __kind: 'ApplyLeft', base: baseId, variance: varianceTail };
 }
 
 // ============================================================================

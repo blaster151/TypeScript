@@ -10,7 +10,8 @@ import {
   Apply, Type, TypeArgs, KindArity,
   ArrayK, MaybeK, EitherK, TupleK, FunctionK, PromiseK, SetK, MapK, ListK,
   ReaderK, WriterK, StateK,
-  Maybe, Either, List, Reader, Writer, State
+  Maybe, Either, List, Reader, Writer, State,
+  RequireCovariantLast
 } from './fp-hkt';
 
 // ============================================================================
@@ -24,7 +25,7 @@ import {
  * 1. Identity: map(fa, x => x) = fa
  * 2. Composition: map(fa, f) |> map(_, g) = map(fa, x => g(f(x)))
  */
-export interface Functor<F extends Kind1> {
+export interface Functor<F extends RequireCovariantLast<Kind1>> {
   map<A, B>(fa: Apply<F, [A]>, f: (a: A) => B): Apply<F, [B]>;
 }
 
@@ -37,7 +38,7 @@ export interface Functor<F extends Kind1> {
  * 3. Interchange: ap(u, pure(y)) = ap(pure(f => f(y)), u)
  * 4. Composition: ap(ap(ap(pure(f => g => x => f(g(x))), u), v), w) = ap(u, ap(v, w))
  */
-export interface Applicative<F extends Kind1> extends Functor<F> {
+export interface Applicative<F extends RequireCovariantLast<Kind1>> extends Functor<F> {
   of<A>(a: A): Apply<F, [A]>;
   ap<A, B>(fab: Apply<F, [(a: A) => B]>, fa: Apply<F, [A]>): Apply<F, [B]>;
 }
@@ -50,7 +51,7 @@ export interface Applicative<F extends Kind1> extends Functor<F> {
  * 2. Right Identity: chain(ma, of) = ma
  * 3. Associativity: chain(chain(ma, f), g) = chain(ma, x => chain(f(x), g))
  */
-export interface Monad<F extends Kind1> extends Applicative<F> {
+export interface Monad<F extends RequireCovariantLast<Kind1>> extends Applicative<F> {
   chain<A, B>(fa: Apply<F, [A]>, f: (a: A) => Apply<F, [B]>): Apply<F, [B]>;
 }
 

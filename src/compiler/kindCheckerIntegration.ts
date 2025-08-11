@@ -1,3 +1,28 @@
+/**
+ * Import-time hydrator for KindInfo via side-tables with on-the-fly fallback.
+ * Minimal scaffold to illustrate flow without deep checker integration.
+ */
+import { hydrateKindInfoFromSideTable, defaultKindCache, buildKindExportMeta, toCachedKindInfo, normalizeDeclForHashing } from './kindCache.js';
+import type { SourceFile } from './types.js';
+
+export function tryHydrateKindInfo(modulePath: string, exportName: string): void {
+  const fromSide = hydrateKindInfoFromSideTable(defaultKindCache, modulePath, exportName);
+  if (fromSide) return;
+  // fallback: on-the-fly inference stub
+  // In a real integration, we would walk the remote .d.ts AST to infer arity/variance.
+  const heuristicArity = 1;
+  const normalized = normalizeDeclForHashing(`${exportName}<A> = any`);
+  const meta = buildKindExportMeta({
+    modulePath,
+    exportName,
+    arity: heuristicArity,
+    variance: ['Invariant'],
+    normalizedDeclText: normalized,
+    precision: 'Heuristic'
+  });
+  defaultKindCache.put(toCachedKindInfo(modulePath, meta));
+}
+
 // KINDSCRIPT: START - CHECKER_INTEGRATION - KindScript checker integration imports
 import {
     TypeChecker,
