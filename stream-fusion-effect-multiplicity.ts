@@ -40,7 +40,7 @@ import {
 /**
  * State function type for streams
  */
-export type StateFn<S, A> = (state: S) => [A, S];
+export type StateFn<S, A> = (state: S) => [S, A];
 
 /**
  * Effect tags for stream operations
@@ -567,10 +567,10 @@ export class EffectAwareStreamFusionOptimizer {
         
         return (state: any) => {
           // Execute f first, then g (preserve order for effectful operations)
-          const [fResult, fState] = fStateFn(state);
-          const [gResult, gState] = gStateFn(fState);
+              const [fState, fResult] = fStateFn(state);
+    const [gState, gResult] = gStateFn(fState);
           
-          return [gResult, gState];
+                      return [gState, gResult];
         };
       }
     };

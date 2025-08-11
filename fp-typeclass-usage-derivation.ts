@@ -82,6 +82,7 @@ export interface UsageBoundDerivationConfig<F, UB extends UsageBound<any>> {
   // Core typeclass implementations
   map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>;
   of?: <A>(a: A) => Kind<F, A>;
+  ap?: <A, B>(fab: Kind<F, (a: A) => B>, fa: Kind<F, A>) => Kind<F, B>;
   chain?: <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>) => Kind<F, B>;
   traverse?: <G extends Applicative<any>, A, B>(
     fa: Kind<F, A>,
@@ -91,6 +92,12 @@ export interface UsageBoundDerivationConfig<F, UB extends UsageBound<any>> {
   // Usage bound configuration
   usageBound?: UB;
   typeKey?: string; // For registry lookup
+  /**
+   * Declared upper bound for the function passed to chain. If provided,
+   * chain will multiply fa's bound with this bound instead of inferring
+   * by mock invocation.
+   */
+  fUsageBound?: UsageBound<any>;
   
   // Typeclass flags
   functor?: boolean;
@@ -259,8 +266,15 @@ export function deriveInstancesWithUsage<F, UB extends UsageBound<any>>(
       ...instances.functor!,
       of: config.of,
       ap: <A, B>(fab: Kind<F, (a: A) => B>, fa: Kind<F, A>): Kind<F, B> => {
-        // This is a simplified implementation - in practice would need proper applicative implementation
-        const result = config.map(fab, (f) => f(fa as any)) as Kind<F, B>;
+        // Prefer provided ap if given; otherwise derive via chain + map if chain exists.
+        let result: Kind<F, B>;
+        if (config.ap) {
+          result = config.ap(fab, fa);
+        } else if (config.chain) {
+          result = config.chain(fab, (f) => config.map(fa, (a) => f(a)));
+        } else {
+          throw new Error('Applicative.ap derivation requires either config.ap or config.chain');
+        }
         
         // Multiply usage bounds: new bound = fab.bound * fa.bound
         const fabBound = getUsageBoundFromValue(fab);
@@ -284,10 +298,11 @@ export function deriveInstancesWithUsage<F, UB extends UsageBound<any>>(
       chain: <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>): Kind<F, B> => {
         const result = config.chain!(fa, f);
         
-        // Multiply usage bounds: new bound = fa.bound * f.bound
+        // Multiply usage bounds: new bound = fa.bound * declared f bound (upper bound)
         const faBound = getUsageBoundFromValue(fa);
-        const fBound = inferMaxBoundFromF(f, fa as any);
-        const fUsageBound = createUsageBound(fBound);
+        const fUsageBound = config.fUsageBound
+          ? (config.fUsageBound as UsageBound<any>)
+          : instances.usageBound; // fallback to per-type default upper bound
         const multipliedBound = multiplyUsageBounds(faBound, fUsageBound);
         
         (result as any).usageBound = multipliedBound;

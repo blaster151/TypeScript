@@ -150,13 +150,13 @@ export function fuseFilters<A>(
  * 
  * This fusion combines consecutive scan operations.
  */
-export function fuseScans<S, A, B, C>(
-  f: (acc: S, a: A) => [S, B],
-  g: (acc: S, b: B) => [S, C]
-): (acc: S, a: A) => [S, C] {
-  return (acc, a) => {
-    const [s1, b] = f(acc, a);
-    return g(s1, b);
+export function fuseScans<S, B, C>(
+  f: StateFn<S, B>,
+  g: StateFn<S, C>
+): StateFn<S, C> {
+  return (state) => {
+    const [s1, b] = f(state);
+    return g(s1);
   };
 }
 

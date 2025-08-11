@@ -19,7 +19,10 @@ import {
   constantUsage,
   onceUsage,
   neverUsage,
-  infiniteUsage
+  infiniteUsage,
+  multiply as multiplyMultiplicity,
+  add as addMultiplicity,
+  max as maxMultiplicity
 } from './types';
 
 // ============================================================================
@@ -30,34 +33,19 @@ import {
  * Runtime multiplication of multiplicities
  * If both are finite, multiply them; otherwise return "∞"
  */
-export function multiplyMultiplicities(a: Multiplicity, b: Multiplicity): Multiplicity {
-  if (a === "∞" || b === "∞") {
-    return "∞";
-  }
-  return a * b;
-}
+export const multiplyMultiplicities = multiplyMultiplicity;
 
 /**
  * Runtime addition of multiplicities
  * If both are finite, add them; otherwise return "∞"
  */
-export function addMultiplicities(a: Multiplicity, b: Multiplicity): Multiplicity {
-  if (a === "∞" || b === "∞") {
-    return "∞";
-  }
-  return a + b;
-}
+export const addMultiplicities = addMultiplicity;
 
 /**
  * Runtime maximum of multiplicities
  * If either is infinite, return "∞"; otherwise return the maximum
  */
-export function maxMultiplicities(a: Multiplicity, b: Multiplicity): Multiplicity {
-  if (a === "∞" || b === "∞") {
-    return "∞";
-  }
-  return Math.max(a, b);
-}
+export const maxMultiplicities = maxMultiplicity;
 
 // ============================================================================
 // Usage-Bound Composition

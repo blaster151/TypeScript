@@ -6,22 +6,14 @@
  * fluent method chains.
  */
 
-// Import types from the multiplicity system
-type Usage<T> = (input: T) => Multiplicity;
-type Multiplicity = number | "∞";
-
-// Utility functions
-function constantUsage<T>(multiplicity: Multiplicity): Usage<T> {
-  return () => multiplicity;
-}
-
-function onceUsage<T>(): Usage<T> {
-  return constantUsage<T>(1);
-}
-
-function infiniteUsage<T>(): Usage<T> {
-  return constantUsage<T>("∞");
-}
+// Import canonical types and helpers from the multiplicity system
+import {
+  Usage,
+  Multiplicity,
+  UsageBound as CanonicalUsageBound,
+  multiplyUsageBounds,
+  infinite as infiniteBound
+} from './src/stream/multiplicity/types';
 
 import { 
   getUsageBound, 
@@ -39,10 +31,7 @@ import {
 /**
  * Usage-bound interface that all fluent-enabled objects must implement
  */
-export interface UsageBound<T> {
-  readonly usage: Usage<T>;
-  readonly maxUsage?: Multiplicity;
-}
+export type UsageBound<T> = CanonicalUsageBound<T>;
 
 /**
  * Shared wrapper type for fluent-enabled objects
@@ -160,25 +149,7 @@ export abstract class FluentOpsImpl<T, UB extends UsageBound<T>> implements Flue
 /**
  * Multiply usage bounds for sequential composition
  */
-export function multiplyUsageBounds<A, B>(
-  outer: UsageBound<A>,
-  inner: UsageBound<B>
-): UsageBound<B> {
-  return {
-    usage: (input: B): Multiplicity => {
-      const innerUsage = inner.usage(input);
-      const outerUsage = outer.usage(input as any);
-      
-      if (innerUsage === "∞" || outerUsage === "∞") {
-        return "∞";
-      }
-      return innerUsage * outerUsage;
-    },
-    maxUsage: outer.maxUsage === "∞" || inner.maxUsage === "∞" ? "∞" :
-              outer.maxUsage !== undefined && inner.maxUsage !== undefined ?
-              Math.min(outer.maxUsage, inner.maxUsage) : undefined
-  };
-}
+// Note: multiplyUsageBounds is imported from canonical types
 
 /**
  * Take minimum of usage bounds
@@ -284,10 +255,7 @@ export function getUsageBoundForType<T>(typeKey: string): UsageBound<T> {
   }
   
   // Default to infinite usage
-  return {
-    usage: infiniteUsage<T>(),
-    maxUsage: "∞"
-  };
+  return infiniteBound<T>();
 }
 
 /**
@@ -417,12 +385,12 @@ export function fluent<T>(
  * Create a fluent wrapper with infinite usage
  */
 export function fluentInfinite<T>(value: T): FluentOps<T, UsageBound<T>> {
-  return fluent(value, infiniteUsage<T>(), "∞");
+  return fluent(value, () => "∞", "∞");
 }
 
 /**
  * Create a fluent wrapper with usage = 1
  */
 export function fluentOnce<T>(value: T): FluentOps<T, UsageBound<T>> {
-  return fluent(value, onceUsage<T>(), 1);
+  return fluent(value, () => 1, 1);
 } 

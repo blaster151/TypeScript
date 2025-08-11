@@ -40,7 +40,7 @@ import {
 /**
  * State function type for streams
  */
-export type StateFn<S, A> = (state: S) => [A, S];
+export type StateFn<S, A> = (state: S) => [S, A];
 
 /**
  * Stream interface with usage bounds
@@ -396,10 +396,10 @@ export class StreamFusionOptimizer {
         
         return (state: any) => {
           // Execute f first, then g
-          const [fResult, fState] = fStateFn(state);
-          const [gResult, gState] = gStateFn(fState);
+              const [fState, fResult] = fStateFn(state);
+    const [gState, gResult] = gStateFn(fState);
           
-          return [gResult, gState];
+                      return [gState, gResult];
         };
       }
     };

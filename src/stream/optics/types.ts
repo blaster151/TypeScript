@@ -16,7 +16,8 @@ import {
   constantUsage,
   onceUsage,
   neverUsage,
-  infiniteUsage
+  infiniteUsage,
+  UsageBound as CanonicalUsageBound
 } from '../multiplicity/types';
 
 // ============================================================================

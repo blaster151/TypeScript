@@ -539,7 +539,7 @@ export function canOptimize<T>(stream: T): boolean {
 
 export type Multiplicity = number | "∞";
 
-export type StateFn<S, A> = (state: S) => [A, S];
+export type StateFn<S, A> = (state: S) => [S, A];
 
 // Re-export for convenience
 export { EffectTag, EffectOf, Pure, IO, Async };

@@ -23,11 +23,7 @@ import {
   Multiplicity
 } from '../multiplicity/types';
 
-import {
-  multiplyMultiplicities,
-  addMultiplicities,
-  maxMultiplicities
-} from '../multiplicity/composition';
+import { multiply, add, max } from '../multiplicity/types';
 
 import {
   liftStatelessUsage
@@ -57,7 +53,7 @@ export function composeUsageBoundOptics<S, T, A, B, C, D>(
     // This is a simplified approach - in practice, we'd need more sophisticated handling
     const outerUsage = outer.usage ? outer.usage(input as any) : 1;
     
-    return multiplyMultiplicities(outerUsage, innerUsage);
+    return multiply(outerUsage, innerUsage);
   };
   
   // Create the composed usage-bound optic
@@ -110,7 +106,7 @@ export function parallelUsageBoundOptics<S, T, A, B, C, D>(
     const usage1 = optic1.usage ? optic1.usage(input[0]) : 1;
     const usage2 = optic2.usage ? optic2.usage(input[1]) : 1;
     
-    return maxMultiplicities(usage1, usage2);
+    return max(usage1, usage2);
   };
   
   const result = parallelOptic as any;
@@ -143,7 +139,7 @@ export function fanOutUsageBoundOptics<S, T, A, B, C, D>(
     const usage1 = optic1.usage ? optic1.usage(input) : 1;
     const usage2 = optic2.usage ? optic2.usage(input) : 1;
     
-    return addMultiplicities(usage1, usage2);
+    return add(usage1, usage2);
   };
   
   const result = fanOutOptic as any;

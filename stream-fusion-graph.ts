@@ -51,7 +51,7 @@ import {
 /**
  * State function type for streams
  */
-export type StateFn<S, A> = (state: S) => [A, S];
+export type StateFn<S, A> = (state: S) => [S, A];
 
 /**
  * Stream node in the graph
@@ -562,9 +562,9 @@ export class GraphAwareStreamFusionOptimizer {
         const toStateFn = toNode.stream.run(input);
         
         return (state: any) => {
-          const [fromResult, fromState] = fromStateFn(state);
-          const [toResult, toState] = toStateFn(fromState);
-          return [toResult, toState];
+              const [fromState, fromResult] = fromStateFn(state);
+    const [toState, toResult] = toStateFn(fromState);
+                      return [toState, toResult];
         };
       }
     };

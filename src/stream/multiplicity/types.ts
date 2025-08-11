@@ -32,6 +32,32 @@ export type Multiplicity = Nat | "∞";
 export type Usage<I> = (input: I) => Multiplicity;
 
 // ============================================================================
+// Canonical Usage Bound Shape
+// ============================================================================
+
+/**
+ * Canonical usage-bound shape used across the codebase
+ */
+export interface UsageBound<T> {
+  readonly usage: Usage<T>;
+  readonly maxUsage?: Multiplicity;
+}
+
+/**
+ * Create a UsageBound that always runs once
+ */
+export function once<T>(): UsageBound<T> {
+  return { usage: () => 1, maxUsage: 1 };
+}
+
+/**
+ * Create a UsageBound that has infinite usage
+ */
+export function infinite<T>(): UsageBound<T> {
+  return { usage: () => "∞", maxUsage: "∞" };
+}
+
+// ============================================================================
 // Usage-Bound Stream Interface
 // ============================================================================
 
@@ -106,6 +132,51 @@ export type MaxUsage<A extends Multiplicity, B extends Multiplicity> =
       A extends B ? A : B :
     never :
   never;
+
+// ============================================================================
+// Runtime Multiplicity Helpers (Canonical)
+// ============================================================================
+
+/** Multiply two multiplicities */
+export function multiply(a: Multiplicity, b: Multiplicity): Multiplicity {
+  if (a === "∞" || b === "∞") return "∞";
+  return a * b;
+}
+
+/** Add two multiplicities */
+export function add(a: Multiplicity, b: Multiplicity): Multiplicity {
+  if (a === "∞" || b === "∞") return "∞";
+  return a + b;
+}
+
+/** Take max of two multiplicities */
+export function max(a: Multiplicity, b: Multiplicity): Multiplicity {
+  if (a === "∞" || b === "∞") return "∞";
+  return Math.max(a, b);
+}
+
+/** a <= b for multiplicities */
+export function lte(a: Multiplicity, b: Multiplicity): boolean {
+  if (b === "∞") return true;
+  if (a === "∞") return false;
+  return a <= b;
+}
+
+/** Multiply two UsageBounds to obtain the composed UsageBound */
+export function multiplyUsageBounds<A, B>(
+  outer: UsageBound<A>,
+  inner: UsageBound<B>
+): UsageBound<B> {
+  return {
+    usage: (input: B) => multiply(inner.usage(input), outer.usage(input as any)),
+    maxUsage:
+      outer.maxUsage === "∞" || inner.maxUsage === "∞"
+        ? "∞"
+        : outer.maxUsage !== undefined && inner.maxUsage !== undefined
+        ? Math.min(outer.maxUsage, inner.maxUsage)
+        : outer.maxUsage ?? inner.maxUsage
+  };
+}
 
 // ============================================================================
 // Usage Validation Types
