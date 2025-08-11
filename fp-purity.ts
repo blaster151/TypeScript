@@ -38,14 +38,17 @@ import { TaskEither } from './fp-bimonad-extended';
 // ============================================================================
 
 /**
- * Effect tags for type-level purity tracking
+ * Purity policy
+ * - Pure: no runtime effects (includes State, which is pure state-passing)
+ * - IO: synchronous side effects
+ * - Async: asynchronous effects (Promises, Observables, Tasks)
+ * - State: treated as Pure (pure state-passing)
  */
-export type EffectTag = 
-  | 'Pure' 
-  | 'Impure' 
-  | 'IO' 
-  | 'State' 
-  | 'Async' 
+export type EffectTag =
+  | 'Pure'
+  | 'IO'
+  | 'Async'
+  | 'State'
   | `Custom<${string}>`;
 
 /**
@@ -407,7 +410,8 @@ export const IOPurity: Purity1<IOWithEffect> = {
  * State Purity instance
  */
 export const StatePurity: Purity2<StateWithEffect<any, any>> = {
-  effect: 'State'
+  // Policy: State is treated as Pure (pure state-passing)
+  effect: 'Pure' as any
 };
 
 /**

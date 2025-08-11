@@ -15,7 +15,7 @@ import {
 import {
   Kind1, Kind2, Kind3,
   Apply, Type, TypeArgs, KindArity, KindResult,
-  ArrayK, TupleK, FunctionK
+  ArrayK, TupleK, FunctionK, EitherK
 } from './fp-hkt';
 
 import {
@@ -73,9 +73,7 @@ export type Either<L, R> = EitherUnifiedInstance<L, R>;
 /**
  * HKT kind for Either (arity-2 type constructor)
  */
-export interface EitherK extends Kind2 {
-  readonly type: Either<this['A'], this['B']>;
-}
+// Kind symbol centralized in fp-hkt
 
 // ============================================================================
 // Part 2: Constructor Exports

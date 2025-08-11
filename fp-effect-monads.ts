@@ -432,13 +432,16 @@ export const StateMonad = StateInstances.monad;
  * IO standard instances
  * Note: IO cannot have Eq instance due to side effects
  */
-export const IOOrd = deriveOrdInstance({
-  customOrd: <A>(a: IO<A>, b: IO<A>): number => {
-    // Compare by reference since IO contains functions
-    if (a === b) return 0;
-    return a < b ? -1 : 1;
-  }
-});
+/**
+ * Ord policy for effects:
+ * We intentionally do NOT export or register an Ord instance for IO/Task/State.
+ * Any potential "ordering" would be by reference identity only, which is usually meaningless
+ * and easy to misuse. If you need diagnostics, copy a local identity-based comparator.
+ */
+const IOOrdByReference = {
+  equals: (a: any, b: any) => a === b,
+  compare: (_a: any, _b: any) => 0
+} as const;
 
 export const IOShow = deriveShowInstance({
   customShow: <A>(a: IO<A>): string => `IO(<function>)`
@@ -448,13 +451,10 @@ export const IOShow = deriveShowInstance({
  * Task standard instances
  * Note: Task cannot have Eq instance due to side effects
  */
-export const TaskOrd = deriveOrdInstance({
-  customOrd: <A>(a: Task<A>, b: Task<A>): number => {
-    // Compare by reference since Task contains functions
-    if (a === b) return 0;
-    return a < b ? -1 : 1;
-  }
-});
+const TaskOrdByReference = {
+  equals: (a: any, b: any) => a === b,
+  compare: (_a: any, _b: any) => 0
+} as const;
 
 export const TaskShow = deriveShowInstance({
   customShow: <A>(a: Task<A>): string => `Task(<function>)`
@@ -464,13 +464,10 @@ export const TaskShow = deriveShowInstance({
  * State standard instances
  * Note: State cannot have Eq instance due to function nature
  */
-export const StateOrd = deriveOrdInstance({
-  customOrd: <S, A>(a: State<S, A>, b: State<S, A>): number => {
-    // Compare by reference since State contains functions
-    if (a === b) return 0;
-    return a < b ? -1 : 1;
-  }
-});
+const StateOrdByReference = {
+  equals: (a: any, b: any) => a === b,
+  compare: (_a: any, _b: any) => 0
+} as const;
 
 export const StateShow = deriveShowInstance({
   customShow: <S, A>(a: State<S, A>): string => `State(<function>)`
@@ -571,13 +568,11 @@ export function registerEffectMonadInstances(): void {
     registry.register('IOFunctor', IOFunctor);
     registry.register('IOApplicative', IOApplicative);
     registry.register('IOMonad', IOMonad);
-    registry.register('IOOrd', IOOrd);
     registry.register('IOShow', IOShow);
     registry.registerDerivable('IO', {
       functor: IOFunctor,
       applicative: IOApplicative,
       monad: IOMonad,
-      ord: IOOrd,
       show: IOShow,
       purity: { effect: 'Impure' as const }
     });
@@ -586,13 +581,11 @@ export function registerEffectMonadInstances(): void {
     registry.register('TaskFunctor', TaskFunctor);
     registry.register('TaskApplicative', TaskApplicative);
     registry.register('TaskMonad', TaskMonad);
-    registry.register('TaskOrd', TaskOrd);
     registry.register('TaskShow', TaskShow);
     registry.registerDerivable('Task', {
       functor: TaskFunctor,
       applicative: TaskApplicative,
       monad: TaskMonad,
-      ord: TaskOrd,
       show: TaskShow,
       purity: { effect: 'Async' as const }
     });
@@ -601,13 +594,11 @@ export function registerEffectMonadInstances(): void {
     registry.register('StateFunctor', StateFunctor);
     registry.register('StateApplicative', StateApplicative);
     registry.register('StateMonad', StateMonad);
-    registry.register('StateOrd', StateOrd);
     registry.register('StateShow', StateShow);
     registry.registerDerivable('State', {
       functor: StateFunctor,
       applicative: StateApplicative,
       monad: StateMonad,
-      ord: StateOrd,
       show: StateShow,
       purity: { effect: 'Pure' as const }
     });
@@ -624,20 +615,12 @@ registerEffectMonadInstances();
 /**
  * Convert IO to Task
  */
-export function ioToTask<A>(io: IO<A>): Task<A> {
-  return Task.fromThunk(() => Promise.resolve(io.run()));
-}
+export { ioToTask, unsafeTaskToIO } from './fp-effects-interop';
 
 /**
  * Convert Task to IO (unsafe - blocks)
  */
-export function taskToIO<A>(task: Task<A>): IO<A> {
-  return IO.from(async () => {
-    // This is unsafe in practice - would block the event loop
-    // In a real implementation, you'd want to handle this differently
-    return await task.run();
-  });
-}
+// Note: task->io is intentionally unsafe and centralized in fp-effects-interop
 
 /**
  * Convert State to IO

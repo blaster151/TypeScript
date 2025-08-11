@@ -3,7 +3,7 @@
 // Use the shared HKT encoding only.
 import {
   Kind1, Kind2, Apply,
-  ArrayK, TupleK, FunctionK,
+  ArrayK, TupleK, FunctionK, EitherK,
 } from './fp-hkt';
 
 // ============================================================================
@@ -121,7 +121,6 @@ export type Either<L, R> = { tag: 'Left'; left: L } | { tag: 'Right'; right: R }
 export const Left = <L, R = never>(l: L): Either<L, R> => ({ tag: 'Left', left: l });
 export const Right = <R, L = never>(r: R): Either<L, R> => ({ tag: 'Right', right: r });
 
-interface EitherK extends Kind2 { readonly type: Either<this['A'], this['B']>; }
 
 export const EitherBifunctor: Bifunctor<EitherK> = {
   bimap: (e, f, g) =>

@@ -80,17 +80,16 @@ export type ApplyBifunctorMonad<F extends Kind2, Args extends [Type, Type]> = Ap
  *   );
  * ```
  */
+export type Match2<F extends Kind2> =
+  <L, R, A>(fab: Apply<F, [L, R]>, arms: { Left: (l: L) => A; Right: (r: R) => A }) => A;
+
 export function bichain<F extends Kind2, L, R, L2, R2>(
-  M: BifunctorMonad<F>,
+  _M: BifunctorMonad<F>,
+  match2: Match2<F>,
   onLeft: (l: L) => ApplyBifunctorMonad<F, [L2, R2]>,
   onRight: (r: R) => ApplyBifunctorMonad<F, [L2, R2]>
 ): (ma: ApplyBifunctorMonad<F, [L, R]>) => ApplyBifunctorMonad<F, [L2, R2]> {
-  return (ma) => {
-    // Use the bifunctor's bimap to handle both sides
-    const mapped = M.bimap(ma, onLeft, onRight);
-    // Then chain to flatten the nested structure
-    return M.chain(mapped, (result) => result);
-  };
+  return (ma) => match2(ma, { Left: onLeft, Right: onRight });
 }
 
 /**
@@ -123,12 +122,10 @@ export function bichain<F extends Kind2, L, R, L2, R2>(
  */
 export function chainLeft<F extends Kind2, L, R, L2>(
   M: BifunctorMonad<F>,
+  match2: Match2<F>,
   f: (l: L) => ApplyBifunctorMonad<F, [L2, R]>
 ): (ma: ApplyBifunctorMonad<F, [L, R]>) => ApplyBifunctorMonad<F, [L2, R]> {
-  return (ma) => {
-    // Map the left side with the chain function, keep right side as identity
-    return M.bimap(ma, f, (r: R) => M.of(r));
-  };
+  return (ma) => match2(ma, { Left: f, Right: (r: R) => M.of(r) });
 }
 
 /**
@@ -336,7 +333,7 @@ export function bichainEither<L, R, L2, R2>(
   onLeft: (l: L) => Either<L2, R2>,
   onRight: (r: R) => Either<L2, R2>
 ): (ma: Either<L, R>) => Either<L2, R2> {
-  return bichain(EitherBifunctorMonad, onLeft, onRight);
+  return bichain(EitherBifunctorMonad as any, matchEither as any, onLeft as any, onRight as any) as any;
 }
 
 /**
@@ -345,7 +342,7 @@ export function bichainEither<L, R, L2, R2>(
 export function chainLeftEither<L, R, L2>(
   f: (l: L) => Either<L2, R>
 ): (ma: Either<L, R>) => Either<L2, R> {
-  return chainLeft(EitherBifunctorMonad, f);
+  return chainLeft(EitherBifunctorMonad as any, matchEither as any, f as any) as any;
 }
 
 /**
@@ -374,7 +371,7 @@ export function bichainResult<T, E, T2, E2>(
   onOk: (t: T) => Result<T2, E2>,
   onErr: (e: E) => Result<T2, E2>
 ): (ma: Result<T, E>) => Result<T2, E2> {
-  return bichain(ResultBifunctorMonad, onErr, onOk);
+  return bichain(ResultBifunctorMonad as any, matchResult as any, onErr as any, onOk as any) as any;
 }
 
 /**
@@ -383,7 +380,7 @@ export function bichainResult<T, E, T2, E2>(
 export function chainErrResult<T, E, E2>(
   f: (e: E) => Result<T, E2>
 ): (ma: Result<T, E>) => Result<T, E2> {
-  return chainLeft(ResultBifunctorMonad, f);
+  return chainLeft(ResultBifunctorMonad as any, matchResult as any, f as any) as any;
 }
 
 /**
@@ -510,7 +507,7 @@ export function bichainTaskEither<L, R, L2, R2>(
   onLeft: (l: L) => TaskEither<L2, R2>,
   onRight: (r: R) => TaskEither<L2, R2>
 ): (ma: TaskEither<L, R>) => TaskEither<L2, R2> {
-  return bichain(TaskEitherBifunctorMonad, onLeft, onRight);
+  return bichain(TaskEitherBifunctorMonad as any, matchMEitherImmediate as any, onLeft as any, onRight as any) as any;
 }
 
 /**
@@ -519,7 +516,7 @@ export function bichainTaskEither<L, R, L2, R2>(
 export function chainLeftTaskEither<L, R, L2>(
   f: (l: L) => TaskEither<L2, R>
 ): (ma: TaskEither<L, R>) => TaskEither<L2, R> {
-  return chainLeft(TaskEitherBifunctorMonad, f);
+  return chainLeft(TaskEitherBifunctorMonad as any, matchMEitherImmediate as any, f as any) as any;
 }
 
 /**
@@ -537,6 +534,14 @@ export function matchMTaskEither<L, R, A>(
     });
   };
 }
+
+// Synchronous matcher used by generic combinators (protects against accidental sync branching)
+export const matchMEitherImmediate: Match2<any> = <L, R, A>(
+  _fab: TaskEither<L, R>,
+  _arms: { Left: (l: L) => A; Right: (r: R) => A }
+): A => {
+  throw new Error('TaskEither must be matched asynchronously. Use matchMTaskEither for branching.');
+};
 
 // ============================================================================
 // Utility Functions

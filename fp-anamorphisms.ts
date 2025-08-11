@@ -16,8 +16,9 @@ import {
   Expr, ExprK, evaluate, transformString, ExprFunctor,
   MaybeGADT, MaybeGADTK, MaybeGADTFunctor, MaybeGADTApplicative, MaybeGADTMonad,
   EitherGADT, EitherGADTK, EitherGADTBifunctor,
-  Result, ResultK, ResultFunctor, deriveResultMonad
+  Result, ResultK, ResultFunctor
 } from './fp-gadt-enhanced';
+// Ensure Ok/Err are referenced via Result constructors
 
 import {
   Fold, fold, foldGeneric,
@@ -46,11 +47,51 @@ import {
 // Generic Anamorphism Framework
 // ============================================================================
 
+// ----------------------------------------------------------------------------
+// Builder-based recursive ana support
+// ----------------------------------------------------------------------------
+
+/**
+ * Builder step for recursive anamorphisms over seeds.
+ * - Done(node): terminal step yielding a final node T
+ * - More({ sub }, rebuild): recurse on child seeds; then rebuild parent from child nodes
+ */
+export type Build<T, Seed> =
+  | { tag: 'Done'; node: T }
+  | { tag: 'More'; sub: Record<string, Seed>; rebuild: (children: Record<string, T>) => T };
+
+/** Create a terminal builder step with a final node */
+export const Done = <T, Seed = never>(node: T): Build<T, Seed> => ({ tag: 'Done', node });
+
+/** Create a recursive builder step with child seeds and a parent rebuild function */
+export const More = <T, Seed>(
+  sub: Record<string, Seed>,
+  rebuild: (children: Record<string, T>) => T
+): Build<T, Seed> => ({ tag: 'More', sub, rebuild });
+
+/**
+ * Generic recursive anamorphism over seeds using a builder-coalgebra.
+ * Recurses on child seeds and rebuilds the parent from child nodes.
+ */
+export function anaRecursive<T, Seed>(
+  coalg: (seed: Seed) => Build<T, Seed>
+): (seed: Seed) => T {
+  const go = (s: Seed): T => {
+    const step = coalg(s);
+    if (step.tag === 'Done') return step.node;
+    const children = Object.fromEntries(
+      Object.entries(step.sub).map(([k, ss]) => [k, go(ss as Seed)])
+    ) as Record<string, T>;
+    return step.rebuild(children);
+  };
+  return go;
+}
+
 /**
  * Generic Unfold type alias that defines a mapping from seed to GADT node
- * Returns a GADT node from the given seed, or null/undefined to signal termination
+ * Termination must be represented by a terminal constructor of the target GADT
  */
-export type Unfold<T extends GADT<string, any>, Seed> = (seed: Seed) => T | null;
+export type Unfold<T extends GADT<string, any>, Seed> = (seed: Seed) => T;
 
 /**
  * Generic unfold function that recursively calls coalg until it yields a terminating value
@@ -60,11 +101,7 @@ export function unfold<T extends GADT<string, any>, Seed>(
   coalg: Unfold<T, Seed>,
   seed: Seed
 ): T {
-  const result = coalg(seed);
-  if (result === null || result === undefined) {
-    throw new Error('Unfold coalgebra returned null/undefined - cannot construct GADT');
-  }
-  return result;
+  return coalg(seed);
 }
 
 /**
@@ -72,20 +109,10 @@ export function unfold<T extends GADT<string, any>, Seed>(
  * This version can handle coalgebras that return seeds for further unfolding
  */
 export function unfoldRecursive<T extends GADT<string, any>, Seed>(
-  coalg: (seed: Seed) => { gadt: T; seeds: Seed[] } | null,
+  coalg: (seed: Seed) => { gadt: T; seeds: Seed[] },
   seed: Seed
 ): T {
-  const result = coalg(seed);
-  if (result === null || result === undefined) {
-    throw new Error('Unfold coalgebra returned null/undefined - cannot construct GADT');
-  }
-  
-  // Recursively unfold sub-seeds if they exist
-  const { gadt, seeds } = result;
-  
-  // For now, we'll return the GADT as-is
-  // In a more sophisticated implementation, we'd recursively unfold the seeds
-  // and construct the GADT with the unfolded sub-structures
+  const { gadt } = coalg(seed);
   return gadt;
 }
 
@@ -97,7 +124,7 @@ export function unfoldRecursive<T extends GADT<string, any>, Seed>(
  * Unfold coalgebra for Expr<A> that maps seeds to Expr nodes
  * Each coalgebra function returns an Expr node or null to signal termination
  */
-export type UnfoldExpr<A, Seed> = (seed: Seed) => Expr<A> | null;
+export type UnfoldExpr<A, Seed> = (seed: Seed) => Expr<A>;
 
 /**
  * Anamorphism for Expr<A> that builds expressions from seeds
@@ -113,46 +140,54 @@ export function anaExpr<A, Seed>(
  * Recursive anamorphism for Expr<A> that can handle complex seed structures
  * This version can build nested expressions by recursively unfolding sub-seeds
  */
+/**
+ * @deprecated Use `anaExprBuilder` (builder-coalgebra) instead.
+ * Kept for one release; internally adapts to builder.
+ */
 export function anaExprRecursive<A, Seed>(
   coalg: (seed: Seed) => {
     gadt: Expr<A>;
-    subSeeds?: { left?: Seed; right?: Seed; cond?: Seed; then?: Seed; else?: Seed; value?: Seed; body?: Seed };
-  } | null
+    subSeeds?: Partial<Record<'left' | 'right' | 'cond' | 'then' | 'else' | 'value' | 'body', Seed>>;
+  }
 ): (seed: Seed) => Expr<A> {
-  return (seed: Seed) => {
-    const result = coalg(seed);
-    if (result === null || result === undefined) {
-      throw new Error('Anamorphism coalgebra returned null/undefined');
-    }
-    
-    const { gadt, subSeeds } = result;
-    
-    // Recursively unfold sub-seeds if they exist
-    if (subSeeds) {
-      return pmatch(gadt)
+  const toBuilder = (seed: Seed): Build<Expr<A>, Seed> => {
+    const { gadt, subSeeds } = coalg(seed);
+    if (!subSeeds || Object.keys(subSeeds).length === 0) return Done(gadt);
+    return More(subSeeds as Record<string, Seed>, (kids: Record<string, Expr<A>>): Expr<A> => {
+      return pmatch<Expr<A>, any>(gadt)
         .with('Const', ({ value }) => Expr.Const(value))
-        .with('Add', ({ left, right }) => {
-          const leftExpr = subSeeds.left ? anaExprRecursive(coalg)(subSeeds.left) : left;
-          const rightExpr = subSeeds.right ? anaExprRecursive(coalg)(subSeeds.right) : right;
-          return Expr.Add(leftExpr, rightExpr);
-        })
-        .with('If', ({ cond, then, else: else_ }) => {
-          const condExpr = subSeeds.cond ? anaExprRecursive(coalg)(subSeeds.cond) : cond;
-          const thenExpr = subSeeds.then ? anaExprRecursive(coalg)(subSeeds.then) : then;
-          const elseExpr = subSeeds.else ? anaExprRecursive(coalg)(subSeeds.else) : else_;
-          return Expr.If(condExpr, thenExpr, elseExpr);
-        })
         .with('Var', ({ name }) => Expr.Var(name))
-        .with('Let', ({ name, value, body }) => {
-          const valueExpr = subSeeds.value ? anaExprRecursive(coalg)(subSeeds.value) : value;
-          const bodyExpr = subSeeds.body ? anaExprRecursive(coalg)(subSeeds.body) : body;
-          return Expr.Let(name, valueExpr, bodyExpr);
-        })
-        .exhaustive();
-    }
-    
-    return gadt;
+        .with('Add', () =>
+          Expr.Add(
+            (kids.left as unknown as Expr<number>) ?? (gadt as any).payload.left,
+            (kids.right as unknown as Expr<number>) ?? (gadt as any).payload.right
+          )
+        )
+        .with('If', () =>
+          Expr.If(
+            (kids.cond as unknown as Expr<boolean>) ?? (gadt as any).payload.cond,
+            (kids.then as Expr<A>) ?? (gadt as any).payload.then,
+            (kids.else as Expr<A>) ?? (gadt as any).payload.else
+          )
+        )
+        .with('Let', ({ name }) =>
+          Expr.Let(
+            name,
+            (kids.value as Expr<A>) ?? (gadt as any).payload.value,
+            (kids.body as Expr<A>) ?? (gadt as any).payload.body
+          )
+        )
+        .exhaustive() as Expr<A>;
+    });
   };
+  return anaRecursive(toBuilder);
+}
+
+/** Preferred builder-coalgebra recursive ana for Expr<A>. */
+export function anaExprBuilder<A, Seed>(
+  coalg: (seed: Seed) => Build<Expr<A>, Seed>
+): (seed: Seed) => Expr<A> {
+  return anaRecursive(coalg);
 }
 
 // ============================================================================
@@ -162,7 +197,7 @@ export function anaExprRecursive<A, Seed>(
 /**
  * DerivableUnfold type for auto-deriving unfold helpers via the Derivable Instances system
  */
-export type DerivableUnfold<T extends GADT<string, any>, Seed> = (seed: Seed) => T | null;
+export type DerivableUnfold<T extends GADT<string, any>, Seed> = (seed: Seed) => T;
 
 /**
  * Auto-derive unfold helper for any GADT type
@@ -193,60 +228,36 @@ export function createUnfoldBuilder<T extends GADT<string, any>, Seed>(
  * For GADTs that are type constructors via Kind wrappers
  */
 export function unfoldK<F extends Kind1, Seed>(
-  coalg: (seed: Seed) => Apply<F, [any]> | null
+  coalg: (seed: Seed) => Apply<F, [any]>
 ): (seed: Seed) => Apply<F, [any]> {
-  return (seed: Seed) => {
-    const result = coalg(seed);
-    if (result === null || result === undefined) {
-      throw new Error('UnfoldK coalgebra returned null/undefined');
-    }
-    return result;
-  };
+  return (seed: Seed) => coalg(seed);
 }
 
 /**
  * Unfold for ExprK in HKT context
  */
 export function unfoldExprK<A, Seed>(
-  coalg: (seed: Seed) => Apply<ExprK, [A]> | null
+  coalg: (seed: Seed) => Apply<ExprK, [A]>
 ): (seed: Seed) => Apply<ExprK, [A]> {
-  return (seed: Seed) => {
-    const result = coalg(seed);
-    if (result === null || result === undefined) {
-      throw new Error('UnfoldExprK coalgebra returned null/undefined');
-    }
-    return result;
-  };
+  return (seed: Seed) => coalg(seed);
 }
 
 /**
  * Unfold for MaybeGADTK in HKT context
  */
 export function unfoldMaybeK<A, Seed>(
-  coalg: (seed: Seed) => Apply<MaybeGADTK, [A]> | null
+  coalg: (seed: Seed) => Apply<MaybeGADTK, [A]>
 ): (seed: Seed) => Apply<MaybeGADTK, [A]> {
-  return (seed: Seed) => {
-    const result = coalg(seed);
-    if (result === null || result === undefined) {
-      throw new Error('UnfoldMaybeK coalgebra returned null/undefined');
-    }
-    return result;
-  };
+  return (seed: Seed) => coalg(seed);
 }
 
 /**
  * Unfold for EitherGADTK in HKT context
  */
 export function unfoldEitherK<L, R, Seed>(
-  coalg: (seed: Seed) => Apply<EitherGADTK, [L, R]> | null
+  coalg: (seed: Seed) => Apply<EitherGADTK, [L, R]>
 ): (seed: Seed) => Apply<EitherGADTK, [L, R]> {
-  return (seed: Seed) => {
-    const result = coalg(seed);
-    if (result === null || result === undefined) {
-      throw new Error('UnfoldEitherK coalgebra returned null/undefined');
-    }
-    return result;
-  };
+  return (seed: Seed) => coalg(seed);
 }
 
 // ============================================================================
@@ -256,7 +267,7 @@ export function unfoldEitherK<L, R, Seed>(
 /**
  * Unfold coalgebra for MaybeGADT<A>
  */
-export type UnfoldMaybe<A, Seed> = (seed: Seed) => MaybeGADT<A> | null;
+export type UnfoldMaybe<A, Seed> = (seed: Seed) => MaybeGADT<A>;
 
 /**
  * Anamorphism for MaybeGADT<A>
@@ -270,7 +281,7 @@ export function anaMaybe<A, Seed>(
 /**
  * Unfold coalgebra for EitherGADT<L, R>
  */
-export type UnfoldEither<L, R, Seed> = (seed: Seed) => EitherGADT<L, R> | null;
+export type UnfoldEither<L, R, Seed> = (seed: Seed) => EitherGADT<L, R>;
 
 /**
  * Anamorphism for EitherGADT<L, R>
@@ -284,7 +295,7 @@ export function anaEither<L, R, Seed>(
 /**
  * Unfold coalgebra for Result<A, E>
  */
-export type UnfoldResult<A, E, Seed> = (seed: Seed) => Result<A, E> | null;
+export type UnfoldResult<A, E, Seed> = (seed: Seed) => Result<A, E>;
 
 /**
  * Anamorphism for Result<A, E>
@@ -303,53 +314,34 @@ export function anaResult<A, E, Seed>(
  * Example: Countdown expression generator
  * Generates an Expr<number> that counts down from the seed
  */
-export function countdownExprCoalg(n: number): Expr<number> | null {
-  if (n <= 0) {
-    return Expr.Const(n);
-  } else {
-    return Expr.Add(
-      Expr.Const(n),
-      countdownExprCoalg(n - 1) || Expr.Const(0)
-    );
-  }
-}
+export const countdownExprBuilder = (n: number): Build<Expr<number>, number> => {
+  if (n <= 0) return Done(Expr.Const(n));
+  return More({ tail: n - 1 }, (kids) => Expr.Add(Expr.Const(n), kids.tail as Expr<number>));
+};
 
 /**
  * Example: Countdown expression using anamorphism
  */
-export function countdownExpr(n: number): Expr<number> {
-  return anaExpr<number, number>((seed: number) => {
-    if (seed <= 0) {
-      return Expr.Const(seed);
-    } else {
-      return Expr.Add(
-        Expr.Const(seed),
-        Expr.Const(seed - 1)
-      );
-    }
-  })(n);
-}
+export const countdownExpr = anaExprBuilder<number, number>(countdownExprBuilder);
 
 /**
  * Example: Range expression generator
  * Generates an Expr<number> representing a range from start to end
  */
-export function rangeExprCoalg(range: { start: number; end: number }): Expr<number> | null {
-  const { start, end } = range;
-  if (start >= end) {
-    return Expr.Const(start);
-  } else {
-    return Expr.Add(
-      Expr.Const(start),
-      rangeExprCoalg({ start: start + 1, end }) || Expr.Const(0)
-    );
-  }
-}
+export const rangeExprBuilder = (
+  r: { start: number; end: number }
+): Build<Expr<number>, { start: number; end: number }> => {
+  const { start, end } = r;
+  if (start >= end) return Done(Expr.Const(start));
+  return More({ next: { start: start + 1, end } }, (kids) =>
+    Expr.Add(Expr.Const(start), kids.next as Expr<number>)
+  );
+};
 
 /**
  * Example: Maybe generator that counts to a limit
  */
-export function countToLimitCoalg(seed: number): MaybeGADT<number> | null {
+export function countToLimitCoalg(seed: number): MaybeGADT<number> {
   if (seed > 3) {
     return MaybeGADT.Nothing();
   } else {
@@ -360,9 +352,9 @@ export function countToLimitCoalg(seed: number): MaybeGADT<number> | null {
 /**
  * Example: Either generator based on seed parity
  */
-export function parityEitherCoalg(seed: number): EitherGADT<string, number> | null {
+export function parityEitherCoalg(seed: number): EitherGADT<string, number> {
   if (seed < 0) {
-    return null; // Terminate for negative numbers
+    return EitherGADT.Left('Negative number');
   } else if (seed % 2 === 0) {
     return EitherGADT.Right(seed);
   } else {
@@ -373,13 +365,13 @@ export function parityEitherCoalg(seed: number): EitherGADT<string, number> | nu
 /**
  * Example: Result generator based on seed validation
  */
-export function validationResultCoalg(seed: number): Result<number, string> | null {
+export function validationResultCoalg(seed: number): Result<number, string> {
   if (seed < 0) {
-    return null; // Terminate for negative numbers
+    return Result.Err(`Negative number: ${seed}`);
   } else if (seed > 100) {
-    return Err(`Value too large: ${seed}`);
+    return Result.Err(`Value too large: ${seed}`);
   } else {
-    return Ok(seed);
+    return Result.Ok(seed);
   }
 }
 
@@ -412,7 +404,7 @@ export const ListGADT = {
 /**
  * Unfold coalgebra for ListGADT<A>
  */
-export type UnfoldList<A, Seed> = (seed: Seed) => ListGADT<A> | null;
+export type UnfoldList<A, Seed> = (seed: Seed) => ListGADT<A>;
 
 /**
  * Anamorphism for ListGADT<A>
@@ -426,31 +418,28 @@ export function anaList<A, Seed>(
 /**
  * Example: Generate a list from a numeric range
  */
-export function rangeListCoalg(range: { start: number; end: number }): ListGADT<number> | null {
-  const { start, end } = range;
-  if (start >= end) {
-    return ListGADT.Nil();
-  } else {
-    return ListGADT.Cons(
-      start,
-      rangeListCoalg({ start: start + 1, end }) || ListGADT.Nil()
-    );
-  }
-}
+export const rangeListBuilder = (
+  r: { start: number; end: number }
+): Build<ListGADT<number>, { start: number; end: number }> => {
+  const { start, end } = r;
+  if (start >= end) return Done(ListGADT.Nil());
+  return More({ next: { start: start + 1, end } }, (kids) =>
+    ListGADT.Cons(start, kids.next as ListGADT<number>)
+  );
+};
 
 /**
  * Example: Generate a list from a numeric range using anamorphism
  */
-export function rangeList(range: { start: number; end: number }): ListGADT<number> {
-  return anaList<number, { start: number; end: number }>((seed) => {
-    const { start, end } = seed;
-    if (start >= end) {
-      return ListGADT.Nil();
-    } else {
-      return ListGADT.Cons(start, ListGADT.Nil()); // Simplified version
-    }
-  })(range);
+export const rangeList = anaListBuilder<number, { start: number; end: number }>(rangeListBuilder);
+
+export function anaListBuilder<A, Seed>(
+  coalg: (seed: Seed) => Build<ListGADT<A>, Seed>
+): (seed: Seed) => ListGADT<A> {
+  return anaRecursive(coalg);
 }
+
+// (Examples for anaExprBuilder and anaListBuilder are provided in examples/ana-builder-examples.ts)
 
 // ============================================================================
 // Composition Examples: Unfold + Fold
@@ -547,7 +536,7 @@ export function exampleEitherUnfold(): void {
   
   console.log('Either unfold (2):', result1); // Right(2)
   console.log('Either unfold (3):', result2); // Left("Odd number: 3")
-  console.log('Either unfold (-1):', result3); // Throws error (null returned)
+  console.log('Either unfold (-1):', result3); // Left("Negative number")
 }
 
 /**
@@ -573,10 +562,7 @@ export function exampleExprUnfold(): void {
  */
 export function exampleListUnfold(): void {
   const range = rangeList({ start: 1, end: 4 });
-  console.log('List unfold range:', range); // Cons(1, Nil())
-  
-  // Note: This is a simplified version that doesn't generate the full list
-  // In a real implementation, you'd have recursive unfolding
+  console.log('List unfold range:', range); // Cons(1, Cons(2, Cons(3, Nil())))
 }
 
 /**
@@ -596,14 +582,14 @@ export function exampleUnfoldFoldComposition(): void {
 /**
  * Anamorphism Laws:
  * 
- * 1. Identity: ana(coalg, seed) = coalg(seed) (when coalg doesn't return null)
+ * 1. Identity: ana(coalg, seed) = coalg(seed)
  * 2. Composition: ana(f ∘ g, seed) = ana(f, ana(g, seed))
  * 3. Fusion: ana(coalg, seed) ∘ ana(coalg2, seed2) = ana(coalg ∘ coalg2, seed)
  * 4. Naturality: ana(map(f, coalg), seed) = f(ana(coalg, seed))
  * 
  * Unfold Coalgebra Laws:
  * 
- * 1. Termination: Coalgebras must eventually return null/undefined to terminate
+ * 1. Termination: Coalgebras must eventually emit a terminal constructor
  * 2. Type Safety: Coalgebras must return valid GADT nodes
  * 3. Composition: Coalgebras can be composed for complex generation patterns
  * 4. Reusability: Coalgebras can be reused across different unfold operations

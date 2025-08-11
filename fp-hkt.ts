@@ -440,6 +440,15 @@ export interface StateK extends Kind2 {
   readonly type: State<this['arg0'], this['arg1']>;
 }
 
+// Centralized kind symbols for common FP types
+export interface IOK extends Kind1 {
+  readonly type: any;
+}
+
+export interface TaskK extends Kind1 {
+  readonly type: any;
+}
+
 /**
  * ObservableLite type constructor as HKT (reactive streams)
  */
@@ -455,6 +464,22 @@ export interface TaskEitherK extends Kind2 {
   readonly type: any; // Will be properly typed when imported
   readonly __effect: 'Async'; // Mark as async for purity tracking
 }
+
+// ----------------------------------------------------------------------------
+// Centralized Kind identifier constants (for registries)
+// ----------------------------------------------------------------------------
+export const ARRAY_K_ID = 'ArrayK' as const;
+export const MAYBE_K_ID = 'MaybeK' as const;
+export const EITHER_K_ID = 'EitherK' as const;
+export const TUPLE_K_ID = 'TupleK' as const;
+export const LIST_GADT_K_ID = 'ListGADTK' as const;
+export const MAYBE_GADT_K_ID = 'MaybeGADTK' as const;
+export const EITHER_GADT_K_ID = 'EitherGADTK' as const;
+export const PERSISTENT_LIST_K_ID = 'PersistentListK' as const;
+export const PERSISTENT_MAP_K_ID = 'PersistentMapK' as const;
+export const PERSISTENT_SET_K_ID = 'PersistentSetK' as const;
+export const OBSERVABLE_LITE_K_ID = 'ObservableLiteK' as const;
+export const TASK_EITHER_K_ID = 'TaskEitherK' as const;
 
 // ============================================================================
 // Phantom Type Support (Optional Extra Credit)

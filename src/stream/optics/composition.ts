@@ -1,3 +1,4 @@
+// ARCHIVED: older usage-bound optics mini-project (not integrated)
 /**
  * Usage-Bound Optics Composition
  * 

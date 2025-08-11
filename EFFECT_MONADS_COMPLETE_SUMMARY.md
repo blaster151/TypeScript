@@ -242,7 +242,8 @@ console.log(result); // "Incremented to 6 (current: 6)"
 ### **Chaining Across Effect Monads**
 
 ```typescript
-import { IO, Task, State, ioToTask, stateToIO } from './fp-effect-monads-complete';
+import { IO, Task, State } from './fp-effect-monads-complete';
+import { ioToTask } from './fp-effects-interop';
 
 // Complex workflow combining different effects
 const workflow = State.of(0)
@@ -403,13 +404,13 @@ const promise = taskToPromise(Task.of(42));
 ### **IO ↔ Task**
 
 ```typescript
-import { ioToTask, taskToIO } from './fp-effect-monads-complete';
+import { ioToTask, unsafeTaskToIO } from './fp-effects-interop';
 
 // IO to Task
 const task = ioToTask(IO.of(42));
 
 // Task to IO (synchronous execution)
-const io = taskToIO(Task.of(42));
+const io = unsafeTaskToIO(Task.of(42)); // will throw by default
 ```
 
 ### **State ↔ IO/Task**

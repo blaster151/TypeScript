@@ -82,16 +82,34 @@ interface AdaptiveFilterStream<In> extends StreamModule<In, In | null, { adaptiv
 }
 
 // Composition type for combining stream modules
-interface ComposedStream<F extends StreamModule<any, any, any, any>, G extends StreamModule<any, any, any, any>> 
-  extends StreamModule<
-    F extends StreamModule<infer FIn, any, any, any> ? FIn : never,
-    G extends StreamModule<any, infer GOut, any, any> ? GOut : never,
-    { fState: F extends StreamModule<any, any, infer FState, any> ? FState : never; gState: G extends StreamModule<any, any, infer GState, any> ? GState : never },
-    Add<F extends StreamModule<any, any, any, infer FMult> ? FMult : never, G extends StreamModule<any, any, any, infer GMult> ? GMult : never>
-  > {
-  run(input: F extends StreamModule<infer FIn, any, any, any> ? FIn : never): StateFn<
-    { fState: F extends StreamModule<any, any, infer FState, any> ? FState : never; gState: G extends StreamModule<any, any, infer GState, any> ? GState : never },
-    G extends StreamModule<any, any, any, infer GOut> ? GOut : never
+// Composition type for combining stream modules
+export interface ComposedStream<
+  F extends StreamModule<any, any, any, any>,
+  G extends StreamModule<any, any, any, any>
+> extends StreamModule<
+  // In
+  F extends StreamModule<infer FIn, any, any, any> ? FIn : never,
+  // Out
+  G extends StreamModule<any, infer GOut, any, any> ? GOut : never,
+  // State
+  {
+    fState: F extends StreamModule<any, any, infer FState, any> ? FState : never;
+    gState: G extends StreamModule<any, any, infer GState, any> ? GState : never;
+  },
+  // Multiplicity (add)
+  Add<
+    F extends StreamModule<any, any, any, infer FMult> ? FMult : never,
+    G extends StreamModule<any, any, any, infer GMult> ? GMult : never
+  >
+> {
+  run(
+    input: F extends StreamModule<infer FIn, any, any, any> ? FIn : never
+  ): StateFn<
+    {
+      fState: F extends StreamModule<any, any, infer FState, any> ? FState : never;
+      gState: G extends StreamModule<any, any, infer GState, any> ? GState : never;
+    },
+    G extends StreamModule<any, infer GOut, any, any> ? GOut : never
   >;
 }
 

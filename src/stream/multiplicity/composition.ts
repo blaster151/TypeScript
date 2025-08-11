@@ -1,3 +1,4 @@
+// ARCHIVED: older usage-bound optics mini-project (not integrated)
 /**
  * Composition Rules for Usage-Bound Streams
  * 

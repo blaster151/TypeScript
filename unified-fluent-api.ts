@@ -539,7 +539,7 @@ export function applyFluentAPIToAllADTs(): void {
   applyFluentOps(Maybe.prototype, MaybeFluentImpl);
   
   // Apply to Either
-  applyFluentOps(Either.prototype, EitherFluentImpl);
+  // Removed: do not mutate union prototype for Either
   
   // Apply to Result
   applyFluentOps(Result.prototype, ResultFluentImpl);

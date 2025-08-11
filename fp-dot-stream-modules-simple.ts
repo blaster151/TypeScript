@@ -1,9 +1,5 @@
-/**
- * Simplified DOT-like Stream Modules
- * 
- * This module demonstrates the core concepts of path-dependent types
- * for stream multiplicity tracking using current TypeScript features.
- */
+// Deprecated: Simplified DOT-like Stream Modules (deduped into complete variant)
+// This file intentionally remains for historical context but should not export anything.
 
 // Type-level natural numbers for multiplicity tracking
 type Nat = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
@@ -328,19 +324,4 @@ if (require.main === module) {
   demonstrateIllegalEscalation();
 }
 
-export {
-  StreamModule,
-  MapStream,
-  FilterStream,
-  ScanStream,
-  TakeStream,
-  RepeatStream,
-  ComposedStream,
-  StreamBuilder,
-  composeStreams,
-  Add,
-  Mul,
-  Nat,
-  StateFn,
-  ValidateMultiplicity
-};
+// Intentionally no exports to avoid duplicate identifiers; use fp-dot-stream-modules-complete.ts

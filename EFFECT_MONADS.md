@@ -364,18 +364,15 @@ const stateStr = StateShow.show(state1); // "State(<function>)"
 ### Conversion Functions
 
 ```typescript
-import { 
-  ioToTask, 
-  taskToIO, 
-  stateToIO, 
-  ioToState 
-} from './fp-effect-monads';
+import { ioToTask } from './fp-effects-interop';
+import { stateToIO, ioToState } from './fp-effect-monads';
 
 // Convert IO to Task
 const task = ioToTask(io);
 
-// Convert Task to IO (unsafe - blocks)
-const io = taskToIO(task);
+// Convert Task to IO (unsafe) — centralized and throws by default
+import { unsafeTaskToIO } from './fp-effects-interop';
+const io = unsafeTaskToIO(task);
 
 // Convert State to IO
 const io = stateToIO(state, initialState);

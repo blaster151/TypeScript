@@ -11,7 +11,7 @@
 
 import { applyFluentOps, FluentImpl } from './fp-fluent-api';
 import { Maybe, Just, Nothing, map, chain, filter, filterMap, ap, fold, getOrElse, orElse } from './fp-maybe';
-import { Either, Left, Right, mapEither, chainEither, bimap, mapLeft, mapRight } from './fp-either';
+import { Either, Left, Right, mapEither, chainEither, bimapEither as bimap, mapLeftEither as mapLeft } from './fp-either-unified';
 import { Result, Ok, Err, mapResult, chainResult, bimapResult, mapError, mapSuccess } from './fp-result';
 import { PersistentList, mapList, chainList, filterList, filterMapList, apList } from './fp-persistent';
 import { PersistentMap, mapMap, chainMap, filterMap as filterMapMap } from './fp-persistent';

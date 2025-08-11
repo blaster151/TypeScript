@@ -670,20 +670,12 @@ export const state = createDualAPI({
 /**
  * Convert IO to Task
  */
-export function ioToTask<A>(io: IO<A>): Task<A> {
-  return io.toTask();
-}
+export { ioToTask, unsafeTaskToIO } from './fp-effects-interop';
 
 /**
  * Convert Task to IO (synchronous execution)
  */
-export function taskToIO<A>(task: Task<A>): IO<A> {
-  return new IO(() => {
-    // This is a simplified implementation
-    // In a real implementation, you'd need to handle async execution properly
-    throw new Error('taskToIO requires proper async handling');
-  });
-}
+// task->io is intentionally unsafe and centralized as unsafeTaskToIO
 
 /**
  * Convert State to IO with initial state
@@ -795,7 +787,7 @@ export {
   
   // Interop functions
   ioToTask,
-  taskToIO,
+  unsafeTaskToIO,
   stateToIO,
   ioToState,
   promiseToTask,

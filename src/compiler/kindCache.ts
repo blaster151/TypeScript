@@ -1,3 +1,4 @@
+// ARCHIVED: compiler-side experiment for kind/HKT toolchain (not used by live code)
 /**
  * Cross-module kind elaboration and caching utilities
  *

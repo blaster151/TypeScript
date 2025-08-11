@@ -16,7 +16,8 @@ import {
   Expr, ExprK, evaluate, transformString, ExprFunctor,
   MaybeGADT, MaybeGADTK, MaybeGADTFunctor, MaybeGADTApplicative, MaybeGADTMonad,
   EitherGADT, EitherGADTK, EitherGADTBifunctor,
-  Result, ResultK, ResultFunctor, deriveResultMonad
+  Result, ResultK, ResultFunctor,
+  Ok, Err
 } from './fp-gadt-enhanced';
 
 import {
@@ -476,12 +477,12 @@ export function exampleEitherFold(): void {
   const leftValue = EitherGADT.Left('error');
   const rightValue = EitherGADT.Right(123);
   
-  const defaultAlgebra = eitherDefaultAlgebra<string, number>('default');
+  const defaultAlgebra = eitherDefaultAlgebra<string, number>(0);
   
   const leftResult = cataEither(leftValue, defaultAlgebra);
   const rightResult = cataEither(rightValue, defaultAlgebra);
   
-  console.log('Either fold Left:', leftResult); // "default"
+  console.log('Either fold Left:', leftResult); // 0
   console.log('Either fold Right:', rightResult); // 123
 }
 

@@ -1,3 +1,4 @@
+// ARCHIVED: older usage-bound optics mini-project (not integrated)
 /**
  * Fluent Usage-Bound Wrapper System
  * 

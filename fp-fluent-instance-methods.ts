@@ -15,7 +15,7 @@
 import {
   // Core ADT imports
   Maybe, Just, Nothing, matchMaybe, mapMaybe, apMaybe, chainMaybe,
-  Either, Left, Right, matchEither, mapEither, apEither, chainEither, bimapEither,
+  matchEither, mapEither, apEither, chainEither, bimapEither,
   Result, Ok, Err, matchResult, mapResult, apResult, chainResult, bimapResult
 } from './fp-maybe-unified-enhanced';
 
@@ -91,58 +91,7 @@ export function addMaybeFluentMethods(): void {
  * Add fluent methods to Either instances
  */
 export function addEitherFluentMethods(): void {
-  if (!Either || typeof Either !== 'function') {
-    console.warn('Either constructor not available for fluent augmentation');
-    return;
-  }
-
-  // Functor methods
-  Either.prototype.map = function<L, R, R2>(this: Either<L, R>, f: (r: R) => R2): Either<L, R2> {
-    return mapEither(f, this);
-  };
-
-  // Applicative methods
-  Either.prototype.ap = function<L, R, R2>(this: Either<L, (r: R) => R2>, other: Either<L, R>): Either<L, R2> {
-    return apEither(this, other);
-  };
-
-  // Monad methods
-  Either.prototype.chain = function<L, R, R2>(this: Either<L, R>, f: (r: R) => Either<L, R2>): Either<L, R2> {
-    return chainEither(f, this);
-  };
-
-  // Alias for chain
-  Either.prototype.flatMap = function<L, R, R2>(this: Either<L, R>, f: (r: R) => Either<L, R2>): Either<L, R2> {
-    return chainEither(f, this);
-  };
-
-  // Bifunctor methods
-  Either.prototype.bimap = function<L, R, L2, R2>(this: Either<L, R>, f: (l: L) => L2, g: (r: R) => R2): Either<L2, R2> {
-    return bimapEither(f, g, this);
-  };
-
-  Either.prototype.mapLeft = function<L, R, L2>(this: Either<L, R>, f: (l: L) => L2): Either<L2, R> {
-    return bimapEither(f, (r: R) => r, this);
-  };
-
-  Either.prototype.mapRight = function<L, R, R2>(this: Either<L, R>, g: (r: R) => R2): Either<L, R2> {
-    return bimapEither((l: L) => l, g, this);
-  };
-
-  // Filterable methods
-  Either.prototype.filter = function<L, R>(this: Either<L, R>, predicate: (r: R) => boolean): Either<L, R> {
-    return matchEither(this, {
-      Left: value => Left(value),
-      Right: value => predicate(value) ? this : Left('Filtered out' as any)
-    });
-  };
-
-  // Static methods
-  Either.of = <L, R>(r: R): Either<L, R> => Right(r);
-  Either.Left = Left;
-  Either.Right = Right;
-
-  console.log('✅ Either augmented with fluent methods');
+  console.warn('Either is a union; skipping prototype augmentation. Use data-last helpers.');
 }
 
 // ============================================================================

@@ -18,7 +18,11 @@ import {
 
 import {
   // HKT types
-  Kind1, Kind2, Apply, TaskEitherK
+  Kind1, Kind2, Apply, TaskEitherK,
+  ARRAY_K_ID, MAYBE_K_ID, EITHER_K_ID, TUPLE_K_ID,
+  LIST_GADT_K_ID, MAYBE_GADT_K_ID, EITHER_GADT_K_ID,
+  PERSISTENT_LIST_K_ID, PERSISTENT_MAP_K_ID, PERSISTENT_SET_K_ID,
+  OBSERVABLE_LITE_K_ID, TASK_EITHER_K_ID
 } from './fp-hkt';
 
 import {
@@ -139,7 +143,7 @@ export function initializeFPRegistry(): FPRegistry {
     TupleInstances, TupleEq, TupleOrd, TupleShow
   }) => {
     // Register Array
-    registry.registerHKT('Array', 'ArrayK');
+    registry.registerHKT('Array', ARRAY_K_ID);
     registry.registerPurity('Array', 'Pure');
     registry.registerTypeclass('Array', 'Functor', ArrayInstances.functor);
     registry.registerTypeclass('Array', 'Applicative', ArrayInstances.applicative);
@@ -158,7 +162,7 @@ export function initializeFPRegistry(): FPRegistry {
     });
 
     // Register Maybe
-    registry.registerHKT('Maybe', 'MaybeK');
+    registry.registerHKT('Maybe', MAYBE_K_ID);
     registry.registerPurity('Maybe', 'Pure');
     registry.registerTypeclass('Maybe', 'Functor', MaybeInstances.functor);
     registry.registerTypeclass('Maybe', 'Applicative', MaybeInstances.applicative);
@@ -176,23 +180,12 @@ export function initializeFPRegistry(): FPRegistry {
       purity: { effect: 'Pure' as const }
     });
 
-    // Register Either
-    registry.registerHKT('Either', 'EitherK');
+    // Register Either (types/instances are now provided via fp-either-register)
+    registry.registerHKT('Either', EITHER_K_ID);
     registry.registerPurity('Either', 'Pure');
-    registry.registerTypeclass('Either', 'Bifunctor', EitherInstances.bifunctor);
-    registry.registerTypeclass('Either', 'Eq', EitherEq);
-    registry.registerTypeclass('Either', 'Ord', EitherOrd);
-    registry.registerTypeclass('Either', 'Show', EitherShow);
-    registry.registerDerivable('Either', {
-      bifunctor: EitherInstances.bifunctor,
-      eq: EitherEq,
-      ord: EitherOrd,
-      show: EitherShow,
-      purity: { effect: 'Pure' as const }
-    });
 
     // Register Tuple
-    registry.registerHKT('Tuple', 'TupleK');
+    registry.registerHKT('Tuple', TUPLE_K_ID);
     registry.registerPurity('Tuple', 'Pure');
     registry.registerTypeclass('Tuple', 'Bifunctor', TupleInstances.bifunctor);
     registry.registerTypeclass('Tuple', 'Eq', TupleEq);
@@ -214,7 +207,7 @@ export function initializeFPRegistry(): FPRegistry {
     ListGADTInstances, ListGADTEq, ListGADTOrd, ListGADTShow
   }) => {
     // Register MaybeGADT
-    registry.registerHKT('MaybeGADT', 'MaybeGADTK');
+    registry.registerHKT('MaybeGADT', MAYBE_GADT_K_ID);
     registry.registerPurity('MaybeGADT', 'Pure');
     registry.registerTypeclass('MaybeGADT', 'Functor', MaybeGADTInstances.functor);
     registry.registerTypeclass('MaybeGADT', 'Applicative', MaybeGADTInstances.applicative);
@@ -233,7 +226,7 @@ export function initializeFPRegistry(): FPRegistry {
     });
 
     // Register EitherGADT
-    registry.registerHKT('EitherGADT', 'EitherGADTK');
+    registry.registerHKT('EitherGADT', EITHER_GADT_K_ID);
     registry.registerPurity('EitherGADT', 'Pure');
     registry.registerTypeclass('EitherGADT', 'Bifunctor', EitherGADTInstances.bifunctor);
     registry.registerTypeclass('EitherGADT', 'Eq', EitherGADTEq);
@@ -248,7 +241,7 @@ export function initializeFPRegistry(): FPRegistry {
     });
 
     // Register ListGADT
-    registry.registerHKT('ListGADT', 'ListGADTK');
+    registry.registerHKT('ListGADT', LIST_GADT_K_ID);
     registry.registerPurity('ListGADT', 'Pure');
     registry.registerTypeclass('ListGADT', 'Functor', ListGADTInstances.functor);
     registry.registerTypeclass('ListGADT', 'Eq', ListGADTEq);
@@ -273,7 +266,7 @@ export function initializeFPRegistry(): FPRegistry {
     PersistentSetEq, PersistentSetOrd, PersistentSetShow
   }) => {
     // Register PersistentList
-    registry.registerHKT('PersistentList', 'PersistentListK');
+    registry.registerHKT('PersistentList', PERSISTENT_LIST_K_ID);
     registry.registerPurity('PersistentList', 'Pure');
     registry.registerTypeclass('PersistentList', 'Functor', PersistentListFunctor);
     registry.registerTypeclass('PersistentList', 'Applicative', PersistentListApplicative);
@@ -292,7 +285,7 @@ export function initializeFPRegistry(): FPRegistry {
     });
 
     // Register PersistentMap
-    registry.registerHKT('PersistentMap', 'PersistentMapK');
+    registry.registerHKT('PersistentMap', PERSISTENT_MAP_K_ID);
     registry.registerPurity('PersistentMap', 'Pure');
     registry.registerTypeclass('PersistentMap', 'Functor', PersistentMapFunctor);
     registry.registerTypeclass('PersistentMap', 'Bifunctor', PersistentMapBifunctor);
@@ -309,7 +302,7 @@ export function initializeFPRegistry(): FPRegistry {
     });
 
     // Register PersistentSet
-    registry.registerHKT('PersistentSet', 'PersistentSetK');
+    registry.registerHKT('PersistentSet', PERSISTENT_SET_K_ID);
     registry.registerPurity('PersistentSet', 'Pure');
     registry.registerTypeclass('PersistentSet', 'Functor', PersistentSetFunctor);
     registry.registerTypeclass('PersistentSet', 'Eq', PersistentSetEq);
@@ -329,7 +322,7 @@ export function initializeFPRegistry(): FPRegistry {
     ImmutableArrayInstances, ImmutableArrayEq, ImmutableArrayOrd, ImmutableArrayShow
   }) => {
     // Register ImmutableArray
-    registry.registerHKT('ImmutableArray', 'ArrayK');
+    registry.registerHKT('ImmutableArray', ARRAY_K_ID);
     registry.registerPurity('ImmutableArray', 'Pure');
     registry.registerTypeclass('ImmutableArray', 'Functor', ImmutableArrayInstances.functor);
     registry.registerTypeclass('ImmutableArray', 'Applicative', ImmutableArrayInstances.applicative);
@@ -349,7 +342,7 @@ export function initializeFPRegistry(): FPRegistry {
   });
 
   // Register ObservableLite
-  registry.registerHKT('ObservableLite', 'ObservableLiteK');
+  registry.registerHKT('ObservableLite', OBSERVABLE_LITE_K_ID);
   registry.registerPurity('ObservableLite', 'Async');
   registry.registerTypeclass('ObservableLite', 'Functor', ObservableLiteFunctor);
   registry.registerTypeclass('ObservableLite', 'Applicative', ObservableLiteApplicative);
@@ -362,7 +355,7 @@ export function initializeFPRegistry(): FPRegistry {
   });
 
   // Register TaskEither
-  registry.registerHKT('TaskEither', 'TaskEitherK');
+  registry.registerHKT('TaskEither', TASK_EITHER_K_ID);
   registry.registerPurity('TaskEither', 'Async');
   registry.registerTypeclass('TaskEither', 'Bifunctor', TaskEitherBifunctorMonad);
   registry.registerTypeclass('TaskEither', 'Monad', TaskEitherBifunctorMonad);

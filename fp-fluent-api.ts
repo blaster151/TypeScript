@@ -16,7 +16,7 @@
 import { ObservableLite } from './fp-observable-lite';
 import { StatefulStream } from './fp-stream-state';
 import { Maybe, Just, Nothing } from './fp-maybe';
-import { Either, Left, Right } from './fp-either';
+import { Either, Left, Right } from './fp-either-unified';
 import { Result, Ok, Err } from './fp-result';
 
 // ============================================================================

@@ -37,7 +37,8 @@ import {
   anaMaybe, UnfoldMaybe,
   anaEither, UnfoldEither,
   anaResult, UnfoldResult,
-  anaList, UnfoldList, ListGADT, ListGADTK
+  anaList, UnfoldList, ListGADT, ListGADTK,
+  Build, Done, More, anaRecursive
 } from './fp-anamorphisms';
 
 import {
@@ -90,36 +91,61 @@ export function hylo<Result, GADT extends GADT<string, any>, Seed>(
  */
 export function hyloRecursive<Result, GADT extends GADT<string, any>, Seed>(
   alg: (g: GADT) => Result,
-  coalg: (seed: Seed) => { gadt: GADT; subSeeds?: Seed[] } | null,
+  coalg: (seed: Seed) => { gadt: GADT; subSeeds?: Seed[] },
   seed: Seed
 ): Result {
-  const result = coalg(seed);
-  if (result === null || result === undefined) {
-    throw new Error('Hylomorphism coalgebra returned null/undefined');
-  }
-  
-  const { gadt, subSeeds } = result;
+  const { gadt, subSeeds } = coalg(seed);
   
   // For now, apply algebra directly to the GADT
   // In a more sophisticated implementation, we'd recursively process subSeeds
   return alg(gadt);
 }
 
+// ----------------------------------------------------------------------------
+// Result-level builder hylo (single-pass; avoids building intermediate nodes)
+// ----------------------------------------------------------------------------
+
+/**
+ * Result-level builder step for hylo over seeds without constructing nodes.
+ * - HyloDone(value): terminal result
+ * - HyloMore({ sub }, combine): recurse on child seeds and combine child results
+ */
+export type HyloBuild<Seed, R> =
+  | { tag: 'Done'; value: R }
+  | { tag: 'More'; sub: Record<string, Seed>; combine: (children: Record<string, R>) => R };
+
+/** Create a terminal hylo step with a final result */
+export const HyloDone = <Seed = never, R = never>(value: R): HyloBuild<Seed, R> => ({ tag: 'Done', value });
+
+/** Create a recursive hylo step with child seeds and result combiner */
+export const HyloMore = <Seed, R>(
+  sub: Record<string, Seed>,
+  combine: (children: Record<string, R>) => R
+): HyloBuild<Seed, R> => ({ tag: 'More', sub, combine });
+
+/**
+ * Generic recursive hylo over seeds using a result-level builder.
+ * Avoids constructing intermediate nodes by combining child results directly.
+ */
+export function hyloRecursiveBuilder<Seed, R>(
+  step: (seed: Seed) => HyloBuild<Seed, R>
+): (seed: Seed) => R {
+  const go = (s: Seed): R => {
+    const b = step(s);
+    if (b.tag === 'Done') return b.value;
+    const kids = Object.fromEntries(
+      Object.entries(b.sub).map(([k, ss]) => [k, go(ss as Seed)])
+    ) as Record<string, R>;
+    return b.combine(kids);
+  };
+  return go;
+}
+
 /**
  * Generic hylomorphism with termination condition
  * Allows coalgebra to return null/undefined to signal termination
  */
-export function hyloWithTermination<Result, GADT extends GADT<string, any>, Seed>(
-  alg: (g: GADT) => Result,
-  coalg: (seed: Seed) => GADT | null,
-  seed: Seed
-): Result {
-  const gadt = coalg(seed);
-  if (gadt === null || gadt === undefined) {
-    throw new Error('Hylomorphism coalgebra returned null/undefined - cannot process');
-  }
-  return alg(gadt);
-}
+// Note: hyloWithTermination removed. Termination must be represented via terminal constructors.
 
 // ============================================================================
 // Type-Safe Hylomorphism for Expr
@@ -141,21 +167,63 @@ export function hyloExpr<A, Seed, Result>(
 /**
  * Recursive hylomorphism for Expr<A> with complex seed structures
  */
-export function hyloExprRecursive<A, Seed, Result>(
-  alg: (expr: Expr<A>) => Result,
-  coalg: (seed: Seed) => { expr: Expr<A>; subSeeds?: { left?: Seed; right?: Seed; cond?: Seed; then?: Seed; else?: Seed; value?: Seed; body?: Seed } } | null,
+/** Preferred builder-coalgebra hylo for Expr<A> using node-level builder plus algebra. */
+export function hyloExprBuilder<A, Seed, R>(
+  alg: (expr: Expr<A>) => R,
+  coalg: (seed: Seed) => Build<Expr<A>, Seed>
+): (seed: Seed) => R {
+  const step = (s: Seed): HyloBuild<Seed, R> => {
+    const b = coalg(s);
+    if (b.tag === 'Done') return HyloDone(b.node ? alg(b.node) : (alg as any)(b.node));
+    return HyloMore(b.sub, (childrenR) => {
+      // Fallback: reconstruct parent node shallowly by rebuilding from child nodes
+      const buildOne = anaRecursive(coalg);
+      const childNodes = Object.fromEntries(
+        Object.keys(b.sub).map((k) => [k, buildOne(b.sub[k])])
+      ) as Record<string, Expr<A>>;
+      return alg(b.rebuild(childNodes));
+    });
+  };
+  return hyloRecursiveBuilder(step);
+}
+
+/**
+ * @deprecated Use `hyloExprBuilder` or `hyloRecursiveBuilder`.
+ * Back-compat shim that adapts legacy subSeeds coalgebra to builder.
+ */
+export function hyloExprRecursive<A, Seed, R>(
+  alg: (expr: Expr<A>) => R,
+  coalg: (seed: Seed) => {
+    expr: Expr<A>;
+    subSeeds?: Partial<Record<'left' | 'right' | 'cond' | 'then' | 'else' | 'value' | 'body', Seed>>;
+  },
   seed: Seed
-): Result {
-  const result = coalg(seed);
-  if (result === null || result === undefined) {
-    throw new Error('HyloExpr coalgebra returned null/undefined');
-  }
-  
-  const { expr, subSeeds } = result;
-  
-  // For now, apply algebra directly to the expression
-  // In a more sophisticated implementation, we'd recursively process subSeeds
-  return alg(expr);
+): R {
+  const toBuilder = (s: Seed): Build<Expr<A>, Seed> => {
+    const { expr, subSeeds } = coalg(s);
+    if (!subSeeds || Object.keys(subSeeds).length === 0) return Done(expr);
+    return More(subSeeds as Record<string, Seed>, (kids) => {
+      return pmatch<Expr<A>, any>(expr)
+        .with('Const', ({ value }) => Expr.Const(value))
+        .with('Var', ({ name }) => Expr.Var(name))
+        .with('Add', () => Expr.Add(
+          (kids.left as any) ?? (expr as any).payload.left,
+          (kids.right as any) ?? (expr as any).payload.right
+        ))
+        .with('If', () => Expr.If(
+          (kids.cond as any) ?? (expr as any).payload.cond,
+          (kids.then as any) ?? (expr as any).payload.then,
+          (kids.else as any) ?? (expr as any).payload.else
+        ))
+        .with('Let', ({ name }) => Expr.Let(
+          name,
+          (kids.value as any) ?? (expr as any).payload.value,
+          (kids.body as any) ?? (expr as any).payload.body
+        ))
+        .exhaustive() as Expr<A>;
+    });
+  };
+  return hyloExprBuilder(alg, toBuilder)(seed);
 }
 
 // ============================================================================
