@@ -170,4 +170,13 @@ export function reportLawDiagnostics(name: string, result: Record<string, boolea
   }
 }
 
+// Convenience re-exports for arrow laws
+export {
+  runCategoryLaws,
+  runArrowLaws,
+  runArrowChoiceLaws,
+  runArrowApplyLaws,
+} from './fp-laws-arrows';
+export type { LawReport } from './fp-laws-arrows';
+
 

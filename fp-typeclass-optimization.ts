@@ -779,6 +779,17 @@ export function optimizePipeline(
   pipeline: Operation[],
   context: OptimizationContext
 ): OptimizationResult {
+  // Optional reachability tracing
+  try {
+    // Defer import to avoid module cycles and keep optional
+    const { fusibilityStats } = require('./src/fusionReachability');
+    if ((context as any).enableTracing && (context as any).traceToConsole) {
+      const { operators, reachablePairs } = fusibilityStats();
+      // eslint-disable-next-line no-console
+      console.log(`🧭 Fusibility reachability: ${reachablePairs} reachable pairs across ${operators} operators`);
+    }
+  } catch {}
+
   const steps: OptimizationStep[] = [];
   let optimizedPipeline = [...pipeline];
   let totalPerformanceGain = 0;

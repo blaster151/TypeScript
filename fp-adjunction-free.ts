@@ -62,4 +62,15 @@ export function deriveCofreeComonad<F extends Kind1>(F: Functor<F>) {
   return comonadFromAdjunction(adj as any, { map: <A, B>(fa: Cofree<F, A>, f: (a: A) => B) => ({ head: f(fa.head), tail: F.map(fa.tail, (w: any) => ({ head: f(w.head), tail: F.map(w.tail, (t: any) => t) as any })) as any }) as any } as Functor<any>, { map: <A, B>(fa: any, f: (a: A) => B) => fa } as Functor<any>);
 }
 
+// If you want to re-export the explicit forgetful witness to keep the API discoverable:
+export {
+  FAlgebra,
+  FAlgHom,
+  FAlg,
+  ForgetfulF,
+  FreeFunctor,
+  FreeForgetful,
+  checkFreeForgetfulAdjunction
+} from './fp-algebras-forgetful';
+
 
