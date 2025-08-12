@@ -1,3 +1,23 @@
+import { Kind1, Apply } from './fp-hkt';
+import { Functor } from './fp-typeclasses-hkt';
+
+/**
+ * hylo :: Functor F => (F A -> A) -> (S -> F S) -> S -> A
+ * Encodes a generalized fold after an unfold.
+ */
+export function hylo<F extends Kind1, S, A>(
+  F: Functor<F>,
+  alg: (fa: Apply<F, [A]>) => A,
+  coalg: (s: S) => Apply<F, [S]>
+): (seed: S) => A {
+  const go = (s: S): A => {
+    const fs: Apply<F, [S]> = coalg(s);
+    const fa: Apply<F, [A]> = F.map(fs, go) as any;
+    return alg(fa);
+  };
+  return go;
+}
+
 /**
  * Purity-Aware Hylomorphisms System
  * 

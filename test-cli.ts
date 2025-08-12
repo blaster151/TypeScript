@@ -1,3 +1,4 @@
+// ARCHIVED: older usage-bound optics mini-project (not integrated)
 // Simple test file for CLI verification
 const message: string = "Hello from tsplusc!";
 console.log(message);
